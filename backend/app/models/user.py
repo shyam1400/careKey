@@ -27,6 +27,7 @@ class User(Base):
         default=True,
         server_default="true",
     )
+    last_passkey_registration_auth_time: Mapped[int | None] = mapped_column(nullable=True)
     role: Mapped[AppRole] = mapped_column(
         ENUM(
             AppRole,

@@ -282,14 +282,15 @@ def test_patient_can_get_their_medical_id_qr_payload(authenticated_patient):
     }
 
 
-def test_update_patient_allows_permitted_fields(authenticated_patient):
+def test_update_patient_allows_permitted_fields(authenticated_patient, monkeypatch):
+    monkeypatch.setattr("app.api.patients.verify_patient_assertion", lambda *_args: None)
     patient = _patient_for(authenticated_patient, gender="female", phone="+15550000000")
     _override_db_with_user(authenticated_patient, patient)
     try:
         with TestClient(app) as client:
             response = client.patch(
                 f"/patients/{patient.id}",
-                json={"gender": "male", "phone": "+15551111111"},
+                json={"gender": "male", "phone": "+15551111111", "challenge_id": str(uuid4()), "credential": {"id": "demo"}},
                 headers={"Authorization": "Bearer token"},
             )
     finally:

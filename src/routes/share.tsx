@@ -1,8 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { startAuthentication, type PublicKeyCredentialRequestOptionsJSON } from "@simplewebauthn/browser";
 import { toast } from "sonner";
 import { carekeyRequest } from "@/lib/carekey-api";
+import { patientPasskeyOptionsPath } from "@/lib/passkey-device";
 import { useAuth } from "@/hooks/useAuth";
 import { RequireRole } from "@/components/RequireRole";
 import { PageHeading } from "@/components/AppShell";
@@ -69,6 +71,16 @@ function SharePage() {
   const [customDate, setCustomDate] = useState("");
   const [purpose, setPurpose] = useState("Consultation");
   const [busy, setBusy] = useState(false);
+  const [pendingGrant, setPendingGrant] = useState<{
+    challengeId: string;
+    options: PublicKeyCredentialRequestOptionsJSON;
+    payload: { provider_id: string; permissions: Category[]; purpose: string; expires_at: string };
+  } | null>(null);
+  const [pendingRevoke, setPendingRevoke] = useState<{
+    consentId: string;
+    challengeId: string;
+    options: PublicKeyCredentialRequestOptionsJSON;
+  } | null>(null);
 
   const doctors = useQuery({
     queryKey: ["doctors", user?.id],
@@ -104,16 +116,33 @@ function SharePage() {
     }
     setBusy(true);
     try {
-      await carekeyRequest("/consents", user, {
-        method: "POST",
-        body: JSON.stringify({
-      provider_id: providerId,
-      permissions: perms,
-      purpose,
-      expires_at: expires.toISOString(),
-        }),
+      const result = await carekeyRequest<{ challenge_id: string; options: PublicKeyCredentialRequestOptionsJSON }>(
+        patientPasskeyOptionsPath("/auth/passkeys/authentication-options"), user, { method: "POST" },
+      );
+      setPendingGrant({
+        challengeId: result.challenge_id,
+        options: result.options,
+        payload: { provider_id: providerId, permissions: perms, purpose, expires_at: expires.toISOString() },
       });
     } catch (error) {
+      setBusy(false);
+      return toast.error(error instanceof Error ? error.message : "Could not prepare phone verification");
+    }
+    setBusy(false);
+  }
+
+  async function confirmGrant() {
+    if (!user || !pendingGrant) return;
+    setBusy(true);
+    try {
+      const credential = await startAuthentication({ optionsJSON: pendingGrant.options });
+      await carekeyRequest("/consents", user, {
+        method: "POST",
+        body: JSON.stringify({ ...pendingGrant.payload, challenge_id: pendingGrant.challengeId, credential }),
+      });
+      setPendingGrant(null);
+    } catch (error) {
+      setPendingGrant(null);
       setBusy(false);
       return toast.error(error instanceof Error ? error.message : "Could not grant access");
     }
@@ -125,11 +154,35 @@ function SharePage() {
 
   async function setStatus(c: ConsentRow, status: "revoked" | "active" | "rejected") {
     if (status !== "revoked") return;
+    setBusy(true);
     try {
-      await carekeyRequest(`/consents/${c.id}/revoke`, user!, { method: "POST" });
+      const result = await carekeyRequest<{ challenge_id: string; options: PublicKeyCredentialRequestOptionsJSON }>(
+        patientPasskeyOptionsPath("/auth/passkeys/authentication-options"), user!, { method: "POST" },
+      );
+      setPendingRevoke({ consentId: c.id, challengeId: result.challenge_id, options: result.options });
     } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not prepare phone verification");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirmRevoke() {
+    if (!user || !pendingRevoke) return;
+    setBusy(true);
+    try {
+      const credential = await startAuthentication({ optionsJSON: pendingRevoke.options });
+      await carekeyRequest(`/consents/${pendingRevoke.consentId}/revoke`, user, {
+        method: "POST",
+        body: JSON.stringify({ challenge_id: pendingRevoke.challengeId, credential }),
+      });
+      setPendingRevoke(null);
+    } catch (error) {
+      setPendingRevoke(null);
+      setBusy(false);
       return toast.error(error instanceof Error ? error.message : "Could not revoke access");
     }
+    setBusy(false);
     toast.success("Access revoked");
     await qc.invalidateQueries({ queryKey: ["my-consents"] });
   }
@@ -252,9 +305,13 @@ function SharePage() {
             </Select>
           </div>
 
-          <Button className="w-full" onClick={grant} disabled={busy}>
-            {busy ? "Granting…" : "Grant access"}
-          </Button>
+          {pendingGrant ? (
+            <div className="space-y-2 rounded-md border p-3">
+              <p className="text-sm">Confirm this sharing request on your phone.</p>
+              <Button className="w-full" onClick={() => void confirmGrant()} disabled={busy}>{busy ? "Waiting for your phone…" : "Verify on phone and grant"}</Button>
+              <Button className="w-full" variant="outline" onClick={() => setPendingGrant(null)} disabled={busy}>Cancel</Button>
+            </div>
+          ) : <Button className="w-full" onClick={() => void grant()} disabled={busy}>{busy ? "Preparing…" : "Grant access"}</Button>}
         </div>
 
         <div className="space-y-3">
@@ -287,14 +344,14 @@ function SharePage() {
                     : `Expires ${formatDateTime(c.expires_at)}`}
                 </p>
                 {c.status === "active" ? (
-                  <Button
-                    size="sm"
-                    variant="destructive"
-                    className="mt-3"
-                    onClick={() => setStatus(c, "revoked")}
-                  >
-                    Revoke access
-                  </Button>
+                  pendingRevoke?.consentId === c.id ? (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Button size="sm" variant="destructive" onClick={() => void confirmRevoke()} disabled={busy}>{busy ? "Waiting for your phone…" : "Verify on phone and revoke"}</Button>
+                      <Button size="sm" variant="outline" onClick={() => setPendingRevoke(null)} disabled={busy}>Cancel</Button>
+                    </div>
+                  ) : (
+                    <Button size="sm" variant="destructive" className="mt-3" onClick={() => void setStatus(c, "revoked")} disabled={busy}>Revoke access</Button>
+                  )
                 ) : null}
               </div>
             ))

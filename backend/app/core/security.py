@@ -71,6 +71,7 @@ def get_current_user(
     user = get_or_create_user_from_identity(db, identity)
     if not user.is_active:
         raise _http_error(status.HTTP_401_UNAUTHORIZED, _UNAUTHORIZED["disabled"])
+    user._firebase_auth_time = identity.auth_time
     return user
 
 

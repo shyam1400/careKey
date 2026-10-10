@@ -1,5 +1,6 @@
 from datetime import datetime
 from uuid import UUID
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -12,6 +13,8 @@ SUPPORTED_PERMISSIONS = {
 
 
 class ConsentCreate(BaseModel):
+    challenge_id: UUID | None = None
+    credential: dict[str, Any] | None = None
     provider_id: UUID
     permissions: list[str] = Field(min_length=1, max_length=20)
     purpose: str = Field(default="Consultation", min_length=1, max_length=64)
@@ -31,6 +34,11 @@ class ConsentCreate(BaseModel):
         if value is not None and value.utcoffset() is None:
             raise ValueError("Consent expiration must include a timezone")
         return value
+
+
+class ConsentRevokeProof(BaseModel):
+    challenge_id: UUID
+    credential: dict[str, Any]
 
 
 class ConsentResponse(BaseModel):

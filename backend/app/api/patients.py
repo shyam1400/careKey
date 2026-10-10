@@ -12,6 +12,7 @@ from app.models.patient import Patient
 from app.models.profile import Profile
 from app.models.user import User
 from app.schemas.patient import PatientCreate, PatientMedicalIdResponse, PatientResponse, PatientUpdate
+from app.services.passkeys import verify_patient_assertion
 from app.utils.ids import generate_medical_id
 
 router = APIRouter(prefix="/patients", tags=["patients"])
@@ -131,9 +132,14 @@ def update_patient(
     user: User = Depends(get_current_user),
 ) -> Patient:
     patient = _require_patient_access(user, patient_id, db)
-    update_data = payload.model_dump(exclude_unset=True)
+    update_data = payload.model_dump(exclude_unset=True, exclude={"challenge_id", "credential"})
     if not update_data:
         return patient
+
+    if user.role == AppRole.PATIENT:
+        if payload.challenge_id is None or payload.credential is None:
+            raise HTTPException(status_code=403, detail="Verify this profile change with your phone passkey")
+        verify_patient_assertion(db, user, payload.challenge_id, payload.credential)
 
     for field, value in update_data.items():
         if field == "full_name":

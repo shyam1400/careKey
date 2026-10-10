@@ -1,5 +1,6 @@
 from datetime import date, datetime
 from uuid import UUID
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -17,6 +18,8 @@ class PatientCreate(BaseModel):
 
 
 class PatientUpdate(BaseModel):
+    challenge_id: UUID | None = None
+    credential: dict[str, Any] | None = None
     full_name: str | None = Field(default=None, min_length=1, max_length=100)
     date_of_birth: date | None = None
     gender: str | None = Field(default=None, max_length=32)

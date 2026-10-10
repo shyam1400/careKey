@@ -4,7 +4,10 @@ from app.models.user import User
 
 def test_user_table_columns():
     columns = {column.name for column in User.__table__.columns}
-    assert columns == {"id", "firebase_uid", "email", "is_active", "role", "created_at", "updated_at"}
+    assert columns == {
+        "id", "firebase_uid", "email", "is_active", "role", "created_at", "updated_at",
+        "last_passkey_registration_auth_time",
+    }
 
 
 def test_firebase_uid_is_unique_and_indexed():

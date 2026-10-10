@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
+import { startAuthentication, type PublicKeyCredentialRequestOptionsJSON } from "@simplewebauthn/browser";
 import { toast } from "sonner";
 import { carekeyRequest, type Patient } from "@/lib/carekey-api";
 import { useAuth } from "@/hooks/useAuth";
@@ -21,6 +22,8 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { BLOOD_GROUPS, SEVERITIES, formatDate } from "@/lib/carekey";
+import { PatientPasskeyPanel } from "@/components/PatientPasskeyPanel";
+import { patientPasskeyOptionsPath } from "@/lib/passkey-device";
 
 export const Route = createFileRoute("/profile")({
   head: () => ({
@@ -52,6 +55,7 @@ function ProfilePage() {
         title="Medical profile"
         description="This information powers your emergency profile and anything you choose to share."
       />
+      <PatientPasskeyPanel />
       <Tabs defaultValue="basic">
         <TabsList className="mb-6 flex flex-wrap">
           <TabsTrigger value="basic">Basic & blood</TabsTrigger>
@@ -94,6 +98,11 @@ function BasicSection() {
     rh_factor: "positive",
   });
   const [busy, setBusy] = useState(false);
+  const [pendingSave, setPendingSave] = useState<{
+    challengeId: string;
+    options: PublicKeyCredentialRequestOptionsJSON;
+    payload: Record<string, string | null>;
+  } | null>(null);
 
   const { data } = useQuery({
     queryKey: ["patient-basic", user?.id],
@@ -126,9 +135,14 @@ function BasicSection() {
     }
     setBusy(true);
     try {
-      await carekeyRequest(`/patients/${user.id}`, user, {
-        method: "PATCH",
-        body: JSON.stringify({
+      const result = await carekeyRequest<{
+        challenge_id: string;
+        options: PublicKeyCredentialRequestOptionsJSON;
+      }>(patientPasskeyOptionsPath("/auth/passkeys/authentication-options"), user, { method: "POST" });
+      setPendingSave({
+        challengeId: result.challenge_id,
+        options: result.options,
+        payload: {
         full_name: form.full_name.trim().slice(0, 100),
         date_of_birth: form.date_of_birth || null,
         gender: form.gender || null,
@@ -138,9 +152,32 @@ function BasicSection() {
         emergency_contact_phone: form.emergency_contact_phone.slice(0, 20) || null,
         blood_group: form.blood_group || null,
         rh_factor: form.rh_factor || null,
-        }),
+        },
       });
     } catch (error) {
+      setBusy(false);
+      toast.error(error instanceof Error ? error.message : "Could not prepare phone verification");
+      return;
+    }
+    setBusy(false);
+  }
+
+  async function confirmSave() {
+    if (!user || !pendingSave) return;
+    setBusy(true);
+    try {
+      const credential = await startAuthentication({ optionsJSON: pendingSave.options });
+      await carekeyRequest(`/patients/${user.id}`, user, {
+        method: "PATCH",
+        body: JSON.stringify({
+          ...pendingSave.payload,
+          challenge_id: pendingSave.challengeId,
+          credential,
+        }),
+      });
+      setPendingSave(null);
+    } catch (error) {
+      setPendingSave(null);
       setBusy(false);
       toast.error(error instanceof Error ? error.message : "Could not save profile");
       return;
@@ -254,9 +291,13 @@ function BasicSection() {
           </Field>
         </div>
 
-        <Button onClick={save} disabled={busy} className="w-full">
-          {busy ? "Saving…" : "Save profile"}
-        </Button>
+        {pendingSave ? (
+          <div className="space-y-2">
+            <p className="text-sm text-muted-foreground">Confirm this profile change on your phone.</p>
+            <Button onClick={() => void confirmSave()} disabled={busy} className="w-full">{busy ? "Waiting for your phone…" : "Verify on phone and save"}</Button>
+            <Button variant="outline" onClick={() => setPendingSave(null)} disabled={busy} className="w-full">Cancel</Button>
+          </div>
+        ) : <Button onClick={() => void save()} disabled={busy} className="w-full">{busy ? "Preparing…" : "Save profile"}</Button>}
       </div>
     </div>
   );

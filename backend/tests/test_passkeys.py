@@ -8,7 +8,7 @@ from fastapi import HTTPException
 from app.models.enums import AppRole
 from app.models.passkey import PasskeyChallenge, PasskeyCredential
 from app.models.user import User
-from app.services.passkeys import verify_emergency_assertion
+from app.services.passkeys import require_recent_password_auth, verify_emergency_assertion
 
 
 class _Db:
@@ -16,6 +16,7 @@ class _Db:
         self.challenge = challenge
         self.credential = credential
         self.deleted = []
+        self.added = []
         self.commits = 0
 
     def scalar(self, statement):
@@ -24,6 +25,9 @@ class _Db:
 
     def delete(self, value):
         self.deleted.append(value)
+
+    def add(self, value):
+        self.added.append(value)
 
     def commit(self):
         self.commits += 1
@@ -71,3 +75,16 @@ def test_verified_emergency_challenge_updates_counter_and_is_consumed(monkeypatc
     assert credential.last_used_at is not None
     assert db.deleted == [challenge]
     assert db.commits == 1
+
+
+def test_passkey_registration_requires_fresh_one_time_firebase_password_authentication():
+    user = _user()
+    user._firebase_auth_time = int(datetime.now(timezone.utc).timestamp())
+    db = _Db(None)
+    require_recent_password_auth(db, user)
+    assert user.last_passkey_registration_auth_time == user._firebase_auth_time
+
+    with pytest.raises(HTTPException) as error:
+        require_recent_password_auth(db, user)
+    assert error.value.status_code == 401
+    assert error.value.detail == "Please re-enter your password before adding another passkey"

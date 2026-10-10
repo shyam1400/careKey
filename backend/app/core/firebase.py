@@ -72,6 +72,7 @@ class FirebaseIdentity:
 
     firebase_uid: str
     email: str | None
+    auth_time: int | None = None
 
 
 class FirebaseTokenError(Exception):
@@ -109,4 +110,9 @@ def verify_id_token(id_token: str) -> FirebaseIdentity:
 
     raw_email = decoded.get("email")
     email = raw_email.strip() if isinstance(raw_email, str) and raw_email.strip() else None
-    return FirebaseIdentity(firebase_uid=uid.strip(), email=email)
+    auth_time = decoded.get("auth_time")
+    return FirebaseIdentity(
+        firebase_uid=uid.strip(),
+        email=email,
+        auth_time=auth_time if isinstance(auth_time, int) else None,
+    )

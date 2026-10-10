@@ -2,9 +2,10 @@ import json
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from typing import Literal
 from webauthn import (
     base64url_to_bytes,
     generate_authentication_options,
@@ -13,8 +14,10 @@ from webauthn import (
 )
 from webauthn.helpers import bytes_to_base64url, options_to_json
 from webauthn.helpers.structs import (
+    AuthenticatorAttachment,
     AuthenticatorSelectionCriteria,
     PublicKeyCredentialDescriptor,
+    PublicKeyCredentialHint,
     ResidentKeyRequirement,
     UserVerificationRequirement,
 )
@@ -26,7 +29,14 @@ from app.models.passkey import PasskeyChallenge, PasskeyCredential
 from app.models.profile import Profile
 from app.models.user import User
 from app.schemas.passkey import PasskeyListItem, PasskeyOptions, PasskeyRegistrationVerify
-from app.services.passkeys import origin_context, require_doctor, store_challenge
+from app.schemas.passkey import PasskeyAssertion
+from app.services.passkeys import (
+    origin_context,
+    require_passkey_user,
+    require_recent_password_auth,
+    store_challenge,
+    verify_patient_assertion,
+)
 
 router = APIRouter(prefix="/auth/passkeys", tags=["passkeys"])
 
@@ -36,7 +46,7 @@ def list_passkeys(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> list[PasskeyCredential]:
-    require_doctor(user)
+    require_passkey_user(user)
     return list(
         db.scalars(
             select(PasskeyCredential)
@@ -49,10 +59,13 @@ def list_passkeys(
 @router.post("/registration-options", response_model=PasskeyOptions)
 def registration_options(
     request: Request,
+    device: Literal["phone", "computer"] = Query(default="computer"),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> dict:
-    require_doctor(user)
+    require_passkey_user(user)
+    if user.role.value == "patient":
+        require_recent_password_auth(db, user)
     rp_id, origin = origin_context(request)
     credentials = db.scalars(
         select(PasskeyCredential).where(PasskeyCredential.user_id == user.id)
@@ -65,8 +78,18 @@ def registration_options(
         user_name=user.email or str(user.id),
         user_display_name=(profile.full_name if profile else None) or user.email or "CareKey doctor",
         authenticator_selection=AuthenticatorSelectionCriteria(
-            resident_key=ResidentKeyRequirement.PREFERRED,
+            authenticator_attachment=(
+                (AuthenticatorAttachment.PLATFORM if device == "phone" else AuthenticatorAttachment.CROSS_PLATFORM)
+                if user.role.value == "patient" else None
+            ),
+            resident_key=(
+                ResidentKeyRequirement.REQUIRED if user.role.value == "patient" else ResidentKeyRequirement.PREFERRED
+            ),
             user_verification=UserVerificationRequirement.REQUIRED,
+        ),
+        hints=(
+            [PublicKeyCredentialHint.CLIENT_DEVICE if device == "phone" else PublicKeyCredentialHint.HYBRID]
+            if user.role.value == "patient" else None
         ),
         exclude_credentials=[
             PublicKeyCredentialDescriptor(id=base64url_to_bytes(item.credential_id))
@@ -90,7 +113,7 @@ def register_passkey(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> dict[str, str]:
-    require_doctor(user)
+    require_passkey_user(user)
     challenge = _load_challenge(db, payload.challenge_id, user, "registration")
     if challenge.expires_at <= datetime.now(timezone.utc):
         db.delete(challenge)
@@ -133,16 +156,23 @@ def register_passkey(
 @router.post("/authentication-options", response_model=PasskeyOptions)
 def authentication_options(
     request: Request,
+    device: Literal["phone", "computer"] = Query(default="computer"),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> dict:
-    require_doctor(user)
+    require_passkey_user(user)
     credentials = db.scalars(
         select(PasskeyCredential).where(PasskeyCredential.user_id == user.id)
     ).all()
     if not credentials:
-        raise HTTPException(status_code=409, detail="Set up a device passkey before emergency access")
+        detail = (
+            "Set up a phone passkey before confirming patient changes"
+            if user.role.value == "patient"
+            else "Set up a device passkey before emergency access"
+        )
+        raise HTTPException(status_code=409, detail=detail)
     rp_id, origin = origin_context(request)
+    purpose = "patient_step_up" if user.role.value == "patient" else "emergency"
     options = generate_authentication_options(
         rp_id=rp_id,
         allow_credentials=[
@@ -155,11 +185,27 @@ def authentication_options(
         db,
         user,
         challenge=bytes_to_base64url(options.challenge),
-        purpose="emergency",
+        purpose=purpose,
         rp_id=rp_id,
         origin=origin,
     )
-    return {"challenge_id": challenge_id, "options": json.loads(options_to_json(options))}
+    options_json = json.loads(options_to_json(options))
+    if user.role.value == "patient":
+        options_json["hints"] = ["client-device" if device == "phone" else "hybrid"]
+    return {"challenge_id": challenge_id, "options": options_json}
+
+
+@router.post("/verify")
+def verify_patient_passkey(
+    payload: PasskeyAssertion,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict[str, bool]:
+    require_passkey_user(user)
+    if user.role.value != "patient":
+        raise HTTPException(status_code=403, detail="This verification flow is for patient accounts")
+    verify_patient_assertion(db, user, payload.challenge_id, payload.credential)
+    return {"verified": True}
 
 
 def _load_challenge(db: Session, challenge_id: UUID, user: User, purpose: str) -> PasskeyChallenge:

@@ -9,6 +9,7 @@ from webauthn import base64url_to_bytes, verify_authentication_response
 from webauthn.helpers import bytes_to_base64url
 
 from app.core.config import get_settings
+from app.models.audit import AccessLog
 from app.models.enums import AppRole
 from app.models.passkey import PasskeyChallenge, PasskeyCredential
 from app.models.user import User
@@ -19,6 +20,22 @@ CHALLENGE_TTL = timedelta(minutes=3)
 def require_doctor(user: User) -> None:
     if not user.is_active or user.role != AppRole.DOCTOR:
         raise HTTPException(status_code=403, detail="Only active doctors can manage emergency passkeys")
+
+
+def require_passkey_user(user: User) -> None:
+    if not user.is_active or user.role not in {AppRole.DOCTOR, AppRole.PATIENT}:
+        raise HTTPException(status_code=403, detail="Only active patient or doctor accounts can manage passkeys")
+
+
+def require_recent_password_auth(db: Session, user: User) -> None:
+    auth_time = getattr(user, "_firebase_auth_time", None)
+    now = int(datetime.now(timezone.utc).timestamp())
+    if not isinstance(auth_time, int) or now - auth_time > 300 or auth_time > now + 30:
+        raise HTTPException(status_code=401, detail="Please re-enter your password before adding a passkey")
+    if user.last_passkey_registration_auth_time is not None and auth_time <= user.last_passkey_registration_auth_time:
+        raise HTTPException(status_code=401, detail="Please re-enter your password before adding another passkey")
+    user.last_passkey_registration_auth_time = auth_time
+    db.add(user)
 
 
 def origin_context(request: Request) -> tuple[str, str]:
@@ -63,12 +80,46 @@ def verify_emergency_assertion(
     challenge_id: UUID,
     credential_response: dict,
 ) -> None:
+    verify_assertion(db, user, challenge_id, credential_response, purpose="emergency")
+
+
+def verify_patient_assertion(
+    db: Session,
+    user: User,
+    challenge_id: UUID,
+    credential_response: dict,
+) -> None:
+    if user.role != AppRole.PATIENT or not user.is_active:
+        raise HTTPException(status_code=403, detail="Only active patient accounts can verify with a passkey")
+    verify_assertion(db, user, challenge_id, credential_response, purpose="patient_step_up")
+    db.add(
+        AccessLog(
+            patient_id=user.id,
+            provider_name=(user.email or "Patient")[:100],
+            action="Patient confirmed a sensitive account action with a passkey",
+            categories=[],
+            access_type="account_security",
+            verification_result="webauthn_user_verified",
+            success=True,
+        )
+    )
+    db.commit()
+
+
+def verify_assertion(
+    db: Session,
+    user: User,
+    challenge_id: UUID,
+    credential_response: dict,
+    *,
+    purpose: str,
+) -> None:
     challenge = db.scalar(
         select(PasskeyChallenge)
         .where(
             PasskeyChallenge.id == challenge_id,
             PasskeyChallenge.user_id == user.id,
-            PasskeyChallenge.purpose == "emergency",
+            PasskeyChallenge.purpose == purpose,
         )
         .with_for_update()
     )

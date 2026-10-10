@@ -14,7 +14,8 @@ from app.models.patient import Patient
 from app.models.profile import Profile
 from app.models.records import Allergy, Condition, Document, Medication, Surgery
 from app.models.user import User
-from app.schemas.consent import ConsentCreate, ConsentResponse
+from app.schemas.consent import ConsentCreate, ConsentResponse, ConsentRevokeProof
+from app.services.passkeys import verify_patient_assertion
 
 router = APIRouter(prefix="/consents", tags=["consents"])
 
@@ -41,6 +42,9 @@ def grant_consent(
 ) -> Consent:
     if user.role != AppRole.PATIENT:
         raise HTTPException(status_code=403, detail="Only patients can grant consent")
+    if payload.challenge_id is None or payload.credential is None:
+        raise HTTPException(status_code=403, detail="Verify granting access with your phone passkey")
+    verify_patient_assertion(db, user, payload.challenge_id, payload.credential)
     patient = db.scalar(select(Patient).where(Patient.id == user.id))
     if patient is None:
         raise HTTPException(status_code=404, detail="Patient profile not found")
@@ -198,11 +202,13 @@ def read_consented_records(
 @router.post("/{consent_id}/revoke", response_model=ConsentResponse)
 def revoke_consent(
     consent_id: UUID,
+    payload: ConsentRevokeProof,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> Consent:
     if user.role != AppRole.PATIENT:
         raise HTTPException(status_code=403, detail="Only patients can revoke consent")
+    verify_patient_assertion(db, user, payload.challenge_id, payload.credential)
     consent = db.scalar(select(Consent).where(Consent.id == consent_id))
     if consent is None or consent.patient_id != user.id:
         raise HTTPException(status_code=404, detail="Consent not found")

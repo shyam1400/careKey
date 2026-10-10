@@ -74,13 +74,14 @@ def _request(db, user, method, path, **kwargs):
         app.dependency_overrides.clear()
 
 
-def test_patient_can_grant_explicit_consent_to_active_doctor():
+def test_patient_can_grant_explicit_consent_to_active_doctor(monkeypatch):
+    monkeypatch.setattr("app.api.consents.verify_patient_assertion", lambda *_args: None)
     patient_user, doctor = _user(AppRole.PATIENT), _user(AppRole.DOCTOR)
     patient = Patient(id=patient_user.id, medical_id="CK-12345678")
     db = _Db(patient, doctor)
     response = _request(
         db, patient_user, "post", "/consents",
-        json={"provider_id": str(doctor.id), "permissions": ["allergies"], "purpose": "Emergency care"},
+        json={"provider_id": str(doctor.id), "permissions": ["allergies"], "purpose": "Emergency care", "challenge_id": str(uuid4()), "credential": {"id": "demo"}},
     )
     assert response.status_code == 201
     assert response.json()["status"] == "active"
@@ -117,7 +118,8 @@ def test_doctor_can_only_read_categories_on_own_active_consent():
     assert any(isinstance(item, AccessLog) and item.access_type == "consent" for item in db.added)
 
 
-def test_patient_can_revoke_own_active_consent():
+def test_patient_can_revoke_own_active_consent(monkeypatch):
+    monkeypatch.setattr("app.api.consents.verify_patient_assertion", lambda *_args: None)
     patient_user, doctor = _user(AppRole.PATIENT), _user(AppRole.DOCTOR)
     consent = Consent(
         id=uuid4(), patient_id=patient_user.id, provider_id=doctor.id,
@@ -125,7 +127,7 @@ def test_patient_can_revoke_own_active_consent():
         created_at=datetime.now(timezone.utc),
     )
     db = _Db(None, doctor, consent=consent)
-    response = _request(db, patient_user, "post", f"/consents/{consent.id}/revoke")
+    response = _request(db, patient_user, "post", f"/consents/{consent.id}/revoke", json={"challenge_id": str(uuid4()), "credential": {"id": "demo"}})
     assert response.status_code == 200
     assert response.json()["status"] == "revoked"
     assert consent.revoked_at is not None
