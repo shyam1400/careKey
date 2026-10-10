@@ -60,6 +60,7 @@ async function request<T>(path: string, token: string, init?: RequestInit): Prom
     }
     throw new CareKeyApiError(message, response.status);
   }
+  if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
 }
 
