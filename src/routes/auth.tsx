@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -47,7 +47,7 @@ function AuthPage() {
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
   const [busy, setBusy] = useState(false);
-  const { session, role: currentRole, loading, accountError } = useAuth();
+  const { session, role: currentRole, loading, accountError, refresh } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -77,9 +77,16 @@ function AuthPage() {
           parsed.data.password,
         );
         await updateProfile(credential.user, { displayName: fullName.trim() || parsed.data.email });
+        await credential.user.getIdToken(true);
+        const assignedRole = await refresh();
+        if (!assignedRole) throw new Error("Your account was created, but CareKey could not finish setting it up. Please try signing in again.");
         toast.success("Account created. Signing you in…");
+        await navigate({ to: roleHome[assignedRole] });
       } else {
-        await signInWithEmailAndPassword(auth, parsed.data.email, parsed.data.password);
+        const credential = await signInWithEmailAndPassword(auth, parsed.data.email, parsed.data.password);
+        await credential.user.getIdToken(true);
+        const assignedRole = await refresh();
+        if (assignedRole) await navigate({ to: roleHome[assignedRole] });
       }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Something went wrong");
@@ -93,7 +100,13 @@ function AuthPage() {
       <div className="bg-warning-soft px-4 py-1.5 text-center text-xs font-medium text-warning-foreground">
         Research Prototype — Not for Clinical Use. Use synthetic data only.
       </div>
-      <div className="absolute right-4 top-12"><ThemeToggle /></div>
+      <header className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4 px-4 py-3">
+        <CareKeyLogo linked={false} />
+        <div className="flex items-center gap-2">
+          <Link to="/" className="rounded-md px-3 py-2 text-sm text-muted-foreground transition hover:bg-secondary hover:text-foreground">Back to home</Link>
+          <ThemeToggle />
+        </div>
+      </header>
       <div className="flex flex-1 items-center justify-center px-4 py-12">
         <div className="card-surface w-full max-w-md p-8">
           <div className="mb-6"><CareKeyLogo linked={false} /></div>

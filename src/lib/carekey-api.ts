@@ -74,10 +74,17 @@ export async function loadAppUser(firebaseUser: User): Promise<{ user: AppUser; 
     patient = await request<Patient>(`/patients/${user.id}`, token);
   } catch (error) {
     if (!(error instanceof CareKeyApiError) || error.status !== 404) throw error;
-    patient = await request<Patient>("/patients", token, {
-      method: "POST",
-      body: JSON.stringify({ full_name: firebaseUser.displayName || firebaseUser.email || "CareKey patient" }),
-    });
+    try {
+      patient = await request<Patient>("/patients", token, {
+        method: "POST",
+        body: JSON.stringify({ full_name: firebaseUser.displayName || firebaseUser.email || "CareKey patient" }),
+      });
+    } catch (createError) {
+      // AuthProvider and the sign-in page may bootstrap the same new account at once.
+      // If the other request created its profile first, load that profile instead.
+      if (!(createError instanceof CareKeyApiError) || createError.status !== 409) throw createError;
+      patient = await request<Patient>(`/patients/${user.id}`, token);
+    }
   }
   return { user, patient };
 }

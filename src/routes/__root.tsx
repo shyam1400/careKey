@@ -103,7 +103,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         rel: "stylesheet",
         href: "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css",
       },
-      { rel: "icon", href: "/brand/CareKey-emblem-transparent.png", type: "image/png" },
+      { rel: "icon", href: "/brand/CareKey-favicon.png", type: "image/png", sizes: "256x256" },
       { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
       { rel: "apple-touch-icon", href: "/brand/CareKey-emblem-transparent.png" },
     ],

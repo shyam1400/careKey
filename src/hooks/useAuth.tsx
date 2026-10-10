@@ -22,7 +22,7 @@ type AuthState = {
   role: Role | null;
   medicalId: string | null;
   accountError: string | null;
-  refresh: () => Promise<void>;
+  refresh: () => Promise<Role | null>;
   signOut: () => Promise<void>;
 };
 
@@ -37,7 +37,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [accountError, setAccountError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  async function bootstrap(user: User | null) {
+  async function bootstrap(user: User | null): Promise<Role | null> {
     setAccountError(null);
     if (!user) {
       setUser(null);
@@ -45,7 +45,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setRole(null);
       setMedicalId(null);
       setLoading(false);
-      return;
+      return null;
     }
     setLoading(true);
     try {
@@ -71,6 +71,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         });
         setMedicalId(null);
       }
+      return result.user.role;
     } catch (error) {
       console.error("Could not load the CareKey account", error);
       setAccountError(
@@ -82,6 +83,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setRole(null);
       setMedicalId(null);
       setUser(null);
+      return null;
     } finally {
       setLoading(false);
     }
