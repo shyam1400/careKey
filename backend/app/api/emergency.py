@@ -10,6 +10,7 @@ from app.models.patient import Patient
 from app.models.profile import Profile
 from app.models.user import User
 from app.schemas.emergency import EmergencyAccessRequest, EmergencyProfileResponse
+from app.services.passkeys import verify_emergency_assertion
 
 router = APIRouter(prefix="/emergency", tags=["emergency"])
 
@@ -36,6 +37,7 @@ def _audit(
     *,
     patient: Patient | None,
     success: bool,
+    verification_result: str = "firebase_id_token",
 ) -> None:
     profile = _provider_profile(db, user)
     db.add(
@@ -48,7 +50,7 @@ def _audit(
             categories=["emergency_profile", "allergies", "critical_conditions", "active_medications"],
             reason=reason,
             access_type="emergency",
-            verification_result="firebase_id_token",
+            verification_result=verification_result,
             success=success,
         )
     )
@@ -67,12 +69,47 @@ def read_emergency_profile(
         _audit(db, user, reason, medical_id, patient=None, success=False)
         raise HTTPException(status_code=403, detail="Insufficient permissions")
 
+    try:
+        verify_emergency_assertion(
+            db,
+            user,
+            payload.passkey_challenge_id,
+            payload.passkey_credential,
+        )
+    except HTTPException:
+        _audit(
+            db,
+            user,
+            reason,
+            medical_id,
+            patient=None,
+            success=False,
+            verification_result="webauthn_failed",
+        )
+        raise
+
     patient = db.scalar(select(Patient).where(Patient.medical_id == medical_id))
     if patient is None:
-        _audit(db, user, reason, medical_id, patient=None, success=False)
+        _audit(
+            db,
+            user,
+            reason,
+            medical_id,
+            patient=None,
+            success=False,
+            verification_result="webauthn_user_verified",
+        )
         raise HTTPException(status_code=404, detail="Patient not found")
 
-    _audit(db, user, reason, medical_id, patient=patient, success=True)
+    _audit(
+        db,
+        user,
+        reason,
+        medical_id,
+        patient=patient,
+        success=True,
+        verification_result="webauthn_user_verified",
+    )
     return EmergencyProfileResponse(
         medical_id=patient.medical_id,
         full_name=patient.full_name,

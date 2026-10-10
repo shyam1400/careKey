@@ -1,10 +1,14 @@
 from datetime import date
 
 from pydantic import BaseModel, Field, field_validator
+from uuid import UUID
+from typing import Any
 
 
 class EmergencyAccessRequest(BaseModel):
     reason: str = Field(min_length=4, max_length=500)
+    passkey_challenge_id: UUID
+    passkey_credential: dict[str, Any]
 
     @field_validator("reason")
     @classmethod

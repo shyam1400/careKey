@@ -9,6 +9,7 @@ from app.api.emergency import router as emergency_router
 from app.api.health import router as health_router
 from app.api.hospitals import router as hospitals_router
 from app.api.patients import router as patients_router
+from app.api.passkeys import router as passkeys_router
 from app.api.roles import router as roles_router
 from app.api.records import router as records_router
 from app.core.config import get_settings
@@ -37,6 +38,7 @@ app.add_middleware(
 register_exception_handlers(app)
 app.include_router(health_router)
 app.include_router(auth_router)
+app.include_router(passkeys_router)
 app.include_router(roles_router)
 app.include_router(patients_router)
 app.include_router(records_router)

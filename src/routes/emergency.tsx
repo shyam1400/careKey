@@ -1,4 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { startAuthentication, startRegistration, type PublicKeyCredentialCreationOptionsJSON, type PublicKeyCredentialRequestOptionsJSON } from "@simplewebauthn/browser";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
@@ -53,12 +55,92 @@ const REASONS = [
 ];
 
 function EmergencyPage() {
-  const { user } = useAuth();
+  const { user, role } = useAuth();
+  const qc = useQueryClient();
   const [medicalId, setMedicalId] = useState("");
   const [reason, setReason] = useState(REASONS[0]);
   const [data, setData] = useState<EmergencyProfile | null>(null);
   const [scanning, setScanning] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [registrationSetup, setRegistrationSetup] = useState<{ challengeId: string; options: PublicKeyCredentialCreationOptionsJSON } | null>(null);
+  const [pendingAccess, setPendingAccess] = useState<{ challengeId: string; options: PublicKeyCredentialRequestOptionsJSON; medicalId: string; reason: string } | null>(null);
+
+  const passkeys = useQuery({
+    queryKey: ["doctor-passkeys", user?.id],
+    enabled: !!user && role === "doctor",
+    queryFn: () => carekeyRequest<Array<{ id: string; created_at: string }>>("/auth/passkeys", user!),
+  });
+
+  async function beginPasskeySetup() {
+    if (!user) return;
+    setBusy(true);
+    try {
+      const result = await carekeyRequest<{ challenge_id: string; options: PublicKeyCredentialCreationOptionsJSON }>("/auth/passkeys/registration-options", user, { method: "POST" });
+      setRegistrationSetup({ challengeId: result.challenge_id, options: result.options });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not start passkey setup");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function finishPasskeySetup() {
+    if (!user || !registrationSetup) return;
+    setBusy(true);
+    try {
+      const credential = await startRegistration({ optionsJSON: registrationSetup.options });
+      await carekeyRequest("/auth/passkeys/register", user, {
+        method: "POST",
+        body: JSON.stringify({ challenge_id: registrationSetup.challengeId, credential }),
+      });
+      setRegistrationSetup(null);
+      toast.success("Device passkey set up");
+      await qc.invalidateQueries({ queryKey: ["doctor-passkeys", user.id] });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Passkey setup was cancelled or failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function prepareEmergencyAccess(value = medicalId, reasonValue = reason) {
+    const clean = (value.match(/CK-[A-Z0-9]{8}/i)?.[0] ?? value).trim().toUpperCase();
+    if (!/^CK-[A-Z0-9]{8}$/.test(clean)) return toast.error("Medical ID format is CK-XXXXXXXX");
+    if (!user) return toast.error("Your sign-in has expired. Sign in again.");
+    setBusy(true);
+    try {
+      const result = await carekeyRequest<{ challenge_id: string; options: PublicKeyCredentialRequestOptionsJSON }>("/auth/passkeys/authentication-options", user, { method: "POST" });
+      setMedicalId(clean);
+      setPendingAccess({ challengeId: result.challenge_id, options: result.options, medicalId: clean, reason: reasonValue });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not prepare device verification");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirmEmergencyAccess() {
+    if (!user || !pendingAccess) return;
+    setBusy(true);
+    try {
+      const credential = await startAuthentication({ optionsJSON: pendingAccess.options });
+      const profile = await carekeyRequest<EmergencyProfile>(`/emergency/${pendingAccess.medicalId}`, user, {
+        method: "POST",
+        body: JSON.stringify({
+          reason: pendingAccess.reason,
+          passkey_challenge_id: pendingAccess.challengeId,
+          passkey_credential: credential,
+        }),
+      });
+      setData(profile);
+      setPendingAccess(null);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Emergency access was denied");
+      setPendingAccess(null);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function access(id = medicalId) {
     const clean = (id.match(/CK-[A-Z0-9]{8}/i)?.[0] ?? id).trim().toUpperCase();
@@ -68,19 +150,9 @@ function EmergencyPage() {
     }
     if (!user) return toast.error("Your sign-in has expired. Sign in again.");
     setMedicalId(clean);
-    setBusy(true);
-    try {
-      const profile = await carekeyRequest<EmergencyProfile>(`/emergency/${clean}`, user, {
-        method: "POST",
-        body: JSON.stringify({ reason }),
-      });
-      setData(profile);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Emergency access was denied");
-      setData(null);
-    } finally {
-      setBusy(false);
-    }
+    setData(null);
+    setPendingAccess(null);
+    void prepareEmergencyAccess(clean, reason);
   }
 
   function reset() {
@@ -95,10 +167,11 @@ function EmergencyPage() {
         description="Emergency access requires a documented reason. Every attempt is audited by the backend."
         action={data ? <Button variant="outline" onClick={reset}>New patient</Button> : null}
       />
-      <div className="mb-6 rounded-lg border-2 border-warning bg-warning-soft p-4 text-sm">
-        Biometric verification is not connected. This screen uses audited, reason-based emergency access; it does not verify a patient’s identity biometrically.
+      <div className="mb-6 rounded-lg border-2 border-info bg-info-soft p-4 text-sm">
+        Emergency access requires a device passkey with user verification. Your device may use Windows Hello, Touch ID, a phone screen lock, or another passkey. CareKey stores the public credential only; it never receives your face or fingerprint data. This verifies the doctor’s device, not the patient’s identity.
       </div>
       {!data ? (
+        <>
         <div className="grid gap-6 md:grid-cols-2">
           <div className="card-surface space-y-4 p-6">
             <h2 className="font-semibold">Enter Medical ID</h2>
@@ -123,8 +196,17 @@ function EmergencyPage() {
               </Select>
             </div>
             <Button className="w-full" onClick={() => void access()} disabled={busy}>
-              {busy ? "Requesting audited access…" : "Access emergency profile"}
+              {busy ? "Preparing…" : "Continue to device confirmation"}
             </Button>
+            {pendingAccess ? (
+              <div className="space-y-2 rounded-md border p-3">
+                <p className="text-sm">Confirm the emergency access request on this device.</p>
+                <Button className="w-full" onClick={() => void confirmEmergencyAccess()} disabled={busy}>
+                  {busy ? "Confirming…" : "Confirm with passkey"}
+                </Button>
+                <Button className="w-full" variant="outline" onClick={() => setPendingAccess(null)} disabled={busy}>Cancel</Button>
+              </div>
+            ) : null}
           </div>
           <div className="card-surface space-y-4 p-6">
             <h2 className="font-semibold">Scan QR</h2>
@@ -138,6 +220,27 @@ function EmergencyPage() {
             </Button>
           </div>
         </div>
+        <div className="card-surface h-fit space-y-3 p-6">
+          <h2 className="font-semibold">Device passkey</h2>
+          {passkeys.isLoading ? <p className="text-sm text-muted-foreground">Checking passkeys…</p> : null}
+          {passkeys.error ? <p role="alert" className="text-sm text-destructive">Could not load passkey status: {passkeys.error.message}</p> : null}
+          {passkeys.data?.length ? (
+            <p className="text-sm text-muted-foreground">{passkeys.data.length} passkey{passkeys.data.length === 1 ? "" : "s"} registered. Device confirmation is required for each emergency access.</p>
+          ) : null}
+          {!passkeys.isLoading && !passkeys.error && !passkeys.data?.length ? (
+            <p className="text-sm text-muted-foreground">Set up a passkey before requesting emergency access.</p>
+          ) : null}
+          {!registrationSetup ? (
+            <Button variant="outline" className="w-full" onClick={() => void beginPasskeySetup()} disabled={busy}>
+              {busy ? "Preparing…" : passkeys.data?.length ? "Add another passkey" : "Set up device passkey"}
+            </Button>
+          ) : (
+            <Button className="w-full" onClick={() => void finishPasskeySetup()} disabled={busy}>
+              {busy ? "Setting up…" : "Continue on this device"}
+            </Button>
+          )}
+        </div>
+        </>
       ) : <EmergencyView data={data} />}
     </>
   );

@@ -42,3 +42,9 @@ Only bootstrap an account you control. The app intentionally does not expose a p
 3. The doctor signs out and back in. Patients can then select the doctor in **Sharing**. Use synthetic accounts and data only.
 
 The Admin page can also add fictional hospitals to the directory. A hospital is a directory record, not a user account. Do not enter real patient information or rely on demo hospital listings for care decisions.
+
+## Doctor emergency passkeys
+
+Before a doctor can open an emergency profile, they must enroll a passkey from **Emergency patient access → Device passkey**. The browser and device may use Windows Hello, Touch ID, a phone screen lock, or another supported authenticator. CareKey stores the passkey's public credential and never receives face or fingerprint data. User verification confirms the doctor's device; it does not identify the patient.
+
+Passkeys are tied to the site domain used at enrollment. If the app moves to a different domain, the doctor must enroll a new passkey there. Keep the API's `CORS_ORIGINS` set to the exact trusted frontend origins so the backend can validate WebAuthn requests.

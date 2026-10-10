@@ -48,12 +48,16 @@ def _call(db, user, medical_id, reason="Emergency assessment"):
     app.dependency_overrides[get_current_user] = lambda: user
     try:
         with TestClient(app) as client:
-            return client.post(f"/emergency/{medical_id}", json={"reason": reason})
+            return client.post(
+                f"/emergency/{medical_id}",
+                json={"reason": reason, "passkey_challenge_id": str(uuid4()), "passkey_credential": {"id": "demo"}},
+            )
     finally:
         app.dependency_overrides.clear()
 
 
-def test_doctor_can_access_restricted_emergency_summary_with_audit():
+def test_doctor_can_access_restricted_emergency_summary_with_audit(monkeypatch):
+    monkeypatch.setattr("app.api.emergency.verify_emergency_assertion", lambda *_args: None)
     doctor = _user(AppRole.DOCTOR)
     patient = Patient(
         id=uuid4(), medical_id="CK-12345678", blood_group="O+", rh_factor="positive",
@@ -69,6 +73,7 @@ def test_doctor_can_access_restricted_emergency_summary_with_audit():
     assert db.logs[0].success is True
     assert db.logs[0].access_type == "emergency"
     assert db.logs[0].reason == "Emergency assessment"
+    assert db.logs[0].verification_result == "webauthn_user_verified"
 
 
 def test_non_doctor_emergency_access_is_denied_and_audited():
