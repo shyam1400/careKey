@@ -2,18 +2,12 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { z } from "zod";
-import { supabase } from "@/integrations/supabase/client";
+import { createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile } from "firebase/auth";
 import { useAuth, type Role } from "@/hooks/useAuth";
+import { getFirebaseAuth, isFirebaseConfigured } from "@/lib/firebase";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 
 export const Route = createFileRoute("/auth")({
   head: () => ({
@@ -50,8 +44,6 @@ function AuthPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
-  const [organization, setOrganization] = useState("");
-  const [role, setRole] = useState<Role>("patient");
   const [busy, setBusy] = useState(false);
   const { session, role: currentRole, loading } = useAuth();
   const navigate = useNavigate();
@@ -69,29 +61,23 @@ function AuthPage() {
       toast.error(parsed.error.issues[0].message);
       return;
     }
+    if (!isFirebaseConfigured()) {
+      toast.error("Firebase client settings are missing. Configure the VITE_FIREBASE_* environment values.");
+      return;
+    }
     setBusy(true);
     try {
+      const auth = getFirebaseAuth();
       if (mode === "signup") {
-        const { error } = await supabase.auth.signUp({
-          email: parsed.data.email,
-          password: parsed.data.password,
-          options: {
-            emailRedirectTo: window.location.origin,
-            data: {
-              full_name: fullName || parsed.data.email,
-              role,
-              organization: organization || null,
-            },
-          },
-        });
-        if (error) throw error;
+        const credential = await createUserWithEmailAndPassword(
+          auth,
+          parsed.data.email,
+          parsed.data.password,
+        );
+        await updateProfile(credential.user, { displayName: fullName.trim() || parsed.data.email });
         toast.success("Account created. Signing you in…");
       } else {
-        const { error } = await supabase.auth.signInWithPassword({
-          email: parsed.data.email,
-          password: parsed.data.password,
-        });
-        if (error) throw error;
+        await signInWithEmailAndPassword(auth, parsed.data.email, parsed.data.password);
       }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Something went wrong");
@@ -118,8 +104,8 @@ function AuthPage() {
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
             {mode === "signin"
-              ? "Use your demo account credentials."
-              : "Choose the role you want to demonstrate."}
+              ? "Sign in with your CareKey account."
+              : "Create a patient account. Doctor and admin access is provisioned by an administrator."}
           </p>
 
           <form className="mt-6 space-y-4" onSubmit={submit}>
@@ -135,31 +121,6 @@ function AuthPage() {
                     placeholder="Aarav Mehta"
                   />
                 </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="role">Role</Label>
-                  <Select value={role} onValueChange={(v) => setRole(v as Role)}>
-                    <SelectTrigger id="role">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="patient">Patient</SelectItem>
-                      <SelectItem value="doctor">Doctor / healthcare provider</SelectItem>
-                      <SelectItem value="admin">Admin</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                {role === "doctor" ? (
-                  <div className="space-y-1.5">
-                    <Label htmlFor="org">Hospital / organisation</Label>
-                    <Input
-                      id="org"
-                      value={organization}
-                      maxLength={120}
-                      onChange={(e) => setOrganization(e.target.value)}
-                      placeholder="City Care Hospital"
-                    />
-                  </div>
-                ) : null}
               </>
             ) : null}
 

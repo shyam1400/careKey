@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
+import { carekeyRequest, type Patient } from "@/lib/carekey-api";
 import { useAuth } from "@/hooks/useAuth";
 import { RequireRole } from "@/components/RequireRole";
 import { PageHeading } from "@/components/AppShell";
@@ -99,13 +99,7 @@ function BasicSection() {
     queryKey: ["patient-basic", user?.id],
     enabled: !!user,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("patients")
-        .select("*")
-        .eq("id", user!.id)
-        .maybeSingle();
-      if (error) throw error;
-      return data;
+      return carekeyRequest<Patient>(`/patients/${user!.id}`, user!);
     },
   });
 
@@ -131,13 +125,11 @@ function BasicSection() {
       return;
     }
     setBusy(true);
-    const { error: pErr } = await supabase
-      .from("profiles")
-      .update({ full_name: form.full_name.trim().slice(0, 100) })
-      .eq("id", user.id);
-    const { error } = await supabase
-      .from("patients")
-      .update({
+    try {
+      await carekeyRequest(`/patients/${user.id}`, user, {
+        method: "PATCH",
+        body: JSON.stringify({
+        full_name: form.full_name.trim().slice(0, 100),
         date_of_birth: form.date_of_birth || null,
         gender: form.gender || null,
         phone: form.phone.slice(0, 20) || null,
@@ -146,14 +138,14 @@ function BasicSection() {
         emergency_contact_phone: form.emergency_contact_phone.slice(0, 20) || null,
         blood_group: form.blood_group || null,
         rh_factor: form.rh_factor || null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", user.id);
-    setBusy(false);
-    if (error || pErr) {
-      toast.error((error ?? pErr)!.message);
+        }),
+      });
+    } catch (error) {
+      setBusy(false);
+      toast.error(error instanceof Error ? error.message : "Could not save profile");
       return;
     }
+    setBusy(false);
     await refresh();
     toast.success("Profile saved");
   }
@@ -286,13 +278,7 @@ function useList(table: "allergies" | "conditions" | "medications" | "surgeries"
     queryKey: [table, user?.id],
     enabled: !!user,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from(table)
-        .select("*")
-        .eq("patient_id", user!.id)
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      return data as Record<string, unknown>[];
+      return carekeyRequest<Record<string, unknown>[]>(`/records/${table}`, user!);
     },
   });
 
@@ -300,24 +286,29 @@ function useList(table: "allergies" | "conditions" | "medications" | "surgeries"
     ...query,
     userId: user?.id,
     async add(values: Record<string, unknown>) {
-      const { error } = await supabase
-        .from(table)
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        .insert({ ...values, patient_id: user!.id } as any);
-      if (error) return toast.error(error.message);
+      try {
+        await carekeyRequest(`/records/${table}`, user!, { method: "POST", body: JSON.stringify(values) });
+      } catch (error) {
+        return toast.error(error instanceof Error ? error.message : "Could not add record");
+      }
       await qc.invalidateQueries({ queryKey: [table, user?.id] });
       toast.success("Added");
     },
     async remove(id: string) {
-      const { error } = await supabase.from(table).delete().eq("id", id);
-      if (error) return toast.error(error.message);
+      try {
+        await carekeyRequest(`/records/${table}/${id}`, user!, { method: "DELETE" });
+      } catch (error) {
+        return toast.error(error instanceof Error ? error.message : "Could not delete record");
+      }
       await qc.invalidateQueries({ queryKey: [table, user?.id] });
       toast.success("Deleted");
     },
     async update(id: string, values: Record<string, unknown>) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { error } = await supabase.from(table).update(values as any).eq("id", id);
-      if (error) return toast.error(error.message);
+      try {
+        await carekeyRequest(`/records/${table}/${id}`, user!, { method: "PATCH", body: JSON.stringify(values) });
+      } catch (error) {
+        return toast.error(error instanceof Error ? error.message : "Could not update record");
+      }
       await qc.invalidateQueries({ queryKey: [table, user?.id] });
       toast.success("Updated");
     },

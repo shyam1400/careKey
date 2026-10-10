@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { carekeyRequest } from "@/lib/carekey-api";
 import { useAuth } from "@/hooks/useAuth";
 import { RequireRole } from "@/components/RequireRole";
 import { PageHeading } from "@/components/AppShell";
@@ -35,13 +35,11 @@ function HistoryPage() {
     queryKey: ["access-history", user?.id],
     enabled: !!user,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("access_logs")
-        .select("*")
-        .eq("patient_id", user!.id)
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      return data;
+      return carekeyRequest<Array<{
+        id: string; provider_name: string | null; action: string; categories: string[];
+        reason: string | null; access_type: string; verification_result: string | null;
+        success: boolean; created_at: string;
+      }>>("/audit/me", user!);
     },
   });
 

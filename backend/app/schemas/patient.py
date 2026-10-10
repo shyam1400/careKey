@@ -66,3 +66,8 @@ class PatientResponse(BaseModel):
             created_at=getattr(obj, "created_at", None),
             updated_at=getattr(obj, "updated_at", None),
         )
+
+
+class PatientMedicalIdResponse(BaseModel):
+    medical_id: str
+    qr_payload: str

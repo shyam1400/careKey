@@ -2,8 +2,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import QRCode from "qrcode";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { regenerateMedicalId } from "@/lib/carekey-api";
 import { RequireRole } from "@/components/RequireRole";
 import { PageHeading } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
@@ -32,7 +32,7 @@ export const Route = createFileRoute("/qr")({
 });
 
 function QrPage() {
-  const { medicalId, profile, refresh } = useAuth();
+  const { medicalId, profile, refresh, user } = useAuth();
   const [dataUrl, setDataUrl] = useState<string>("");
   const [busy, setBusy] = useState(false);
 
@@ -43,14 +43,16 @@ function QrPage() {
 
   async function regenerate() {
     setBusy(true);
-    const { error } = await supabase.rpc("regenerate_medical_id");
-    setBusy(false);
-    if (error) {
-      toast.error(error.message);
-      return;
+    try {
+      if (!user) throw new Error("Sign in again and retry.");
+      await regenerateMedicalId(user);
+      await refresh();
+      toast.success("New Medical ID generated. Old QR codes no longer work.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not regenerate Medical ID");
+    } finally {
+      setBusy(false);
     }
-    await refresh();
-    toast.success("New Medical ID generated. Old QR codes no longer work.");
   }
 
   return (

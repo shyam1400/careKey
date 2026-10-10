@@ -267,6 +267,21 @@ def test_get_patient_returns_existing_patient(authenticated_patient):
     assert response.json()["gender"] == "female"
 
 
+def test_patient_can_get_their_medical_id_qr_payload(authenticated_patient):
+    patient = _patient_for(authenticated_patient)
+    _override_db_with_user(authenticated_patient, patient)
+    try:
+        with TestClient(app) as client:
+            response = client.get("/patients/me/medical-id", headers={"Authorization": "Bearer token"})
+    finally:
+        app.dependency_overrides.clear()
+    assert response.status_code == 200
+    assert response.json() == {
+        "medical_id": "CK-12345678",
+        "qr_payload": "carekey://medical-id/CK-12345678",
+    }
+
+
 def test_update_patient_allows_permitted_fields(authenticated_patient):
     patient = _patient_for(authenticated_patient, gender="female", phone="+15550000000")
     _override_db_with_user(authenticated_patient, patient)

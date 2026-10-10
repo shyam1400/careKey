@@ -88,7 +88,7 @@ class Surgery(Base):
 
 
 class Document(Base):
-    """Metadata for a medical file. Bytes live on local prototype storage in a later phase."""
+    """Metadata for a private Supabase Storage file."""
 
     __tablename__ = "documents"
 

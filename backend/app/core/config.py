@@ -21,6 +21,12 @@ class Settings(BaseSettings):
     )
     cors_origins: str = "http://localhost:5173,http://localhost:3000"
     local_storage_dir: str = "./storage"
+    supabase_url: str | None = None
+    supabase_service_role_key: str | None = Field(
+        default=None,
+        description="Server-only Supabase key used for private Storage operations; never expose to the browser.",
+    )
+    supabase_storage_bucket: str = "medical-documents"
     osrm_base_url: str | None = None
     firebase_project_id: str | None = Field(
         default=None,

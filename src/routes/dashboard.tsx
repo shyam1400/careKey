@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { carekeyRequest } from "@/lib/carekey-api";
 import { useAuth } from "@/hooks/useAuth";
 import { RequireRole } from "@/components/RequireRole";
 import { PageHeading } from "@/components/AppShell";
@@ -46,24 +46,19 @@ function Dashboard() {
     queryKey: ["dashboard-summary", user?.id],
     enabled: !!user,
     queryFn: async () => {
-      const [patient, allergies, meds, conditions, logs] = await Promise.all([
-        supabase.from("patients").select("blood_group, rh_factor").eq("id", user!.id).maybeSingle(),
-        supabase.from("allergies").select("allergen, severity").eq("patient_id", user!.id),
-        supabase.from("medications").select("name, dosage").eq("patient_id", user!.id).eq("active", true),
-        supabase.from("conditions").select("name, critical").eq("patient_id", user!.id).eq("critical", true),
-        supabase
-          .from("access_logs")
-          .select("provider_name, action, created_at")
-          .eq("patient_id", user!.id)
-          .order("created_at", { ascending: false })
-          .limit(3),
+      const [patient, allergies, medications, conditions, logs] = await Promise.all([
+        carekeyRequest<import("@/lib/carekey-api").Patient>(`/patients/${user!.id}`, user!),
+        carekeyRequest<Array<{ allergen: string; severity: string }>>("/records/allergies", user!),
+        carekeyRequest<Array<{ name: string; dosage: string | null; active: boolean }>>("/records/medications", user!),
+        carekeyRequest<Array<{ name: string; critical: boolean }>>("/records/conditions", user!),
+        carekeyRequest<Array<{ provider_name: string | null; action: string; created_at: string }>>("/audit/me?limit=3", user!),
       ]);
       return {
-        patient: patient.data,
-        allergies: allergies.data ?? [],
-        meds: meds.data ?? [],
-        conditions: conditions.data ?? [],
-        logs: logs.data ?? [],
+        patient,
+        allergies,
+        meds: medications.filter((med) => med.active),
+        conditions: conditions.filter((condition) => condition.critical),
+        logs,
       };
     },
   });

@@ -11,10 +11,46 @@ from app.models.enums import AppRole
 from app.models.patient import Patient
 from app.models.profile import Profile
 from app.models.user import User
-from app.schemas.patient import PatientCreate, PatientResponse, PatientUpdate
+from app.schemas.patient import PatientCreate, PatientMedicalIdResponse, PatientResponse, PatientUpdate
 from app.utils.ids import generate_medical_id
 
 router = APIRouter(prefix="/patients", tags=["patients"])
+
+
+@router.get("/me/medical-id", response_model=PatientMedicalIdResponse)
+def get_my_medical_id(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> PatientMedicalIdResponse:
+    if user.role != AppRole.PATIENT:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
+    patient = db.scalar(select(Patient).where(Patient.id == user.id))
+    if patient is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient profile not found")
+    return PatientMedicalIdResponse(
+        medical_id=patient.medical_id,
+        qr_payload=f"carekey://medical-id/{patient.medical_id}",
+    )
+
+
+@router.post("/me/medical-id/regenerate", response_model=PatientMedicalIdResponse)
+def regenerate_my_medical_id(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> PatientMedicalIdResponse:
+    if user.role != AppRole.PATIENT:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
+    patient = db.scalar(select(Patient).where(Patient.id == user.id))
+    if patient is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient profile not found")
+    patient.medical_id = generate_medical_id()
+    db.add(patient)
+    db.commit()
+    db.refresh(patient)
+    return PatientMedicalIdResponse(
+        medical_id=patient.medical_id,
+        qr_payload=f"carekey://medical-id/{patient.medical_id}",
+    )
 
 
 def _require_patient_access(user: User, patient_id: UUID, db: Session) -> Patient:

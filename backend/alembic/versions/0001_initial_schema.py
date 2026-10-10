@@ -16,7 +16,9 @@ down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
-app_role = postgresql.ENUM("patient", "doctor", "admin", name="app_role")
+app_role = postgresql.ENUM(
+    "patient", "doctor", "admin", name="app_role", create_type=False
+)
 consent_status = postgresql.ENUM(
     "pending",
     "active",
@@ -24,6 +26,7 @@ consent_status = postgresql.ENUM(
     "revoked",
     "rejected",
     name="consent_status",
+    create_type=False,
 )
 
 

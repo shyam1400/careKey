@@ -1,67 +1,65 @@
-# CareKey API — Phase 2 authentication and RBAC
+# CareKey API
 
-CareKey is a research prototype. Phase 2 adds Firebase ID-token authentication, database-backed application users and roles, `/auth/me`, and role-gated probe endpoints. It does not implement Phase 3+ domain APIs, face verification, or frontend integration.
+CareKey is a research prototype built with FastAPI, PostgreSQL, SQLAlchemy, Alembic, and Firebase Authentication. It includes patient profiles, patient-managed provider consent, a restricted emergency summary with server-side access logs, Medical ID lookup support, and a hospital directory. It does not implement biometric verification or a QR image renderer.
 
 ## Requirements
 
 - Python 3.11+
-- PostgreSQL 14+ for running the API
+- PostgreSQL 14+
 - A Firebase project with Firebase Authentication enabled
 
 ## Local setup
 
-From the repository root, create and activate a virtual environment, install the backend dependencies, and create the local environment file:
+From the backend directory, create a virtual environment, install dependencies, and create `.env`:
 
 ```powershell
-cd backend
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 copy .env.example .env
 ```
 
-Set `DATABASE_URL` in `.env` to a PostgreSQL database and configure these Firebase Admin SDK settings:
+Set `DATABASE_URL` and configure `FIREBASE_PROJECT_ID` and `FIREBASE_CREDENTIALS_PATH` in `.env`. Store the Firebase service-account JSON at the configured path and keep both it and `.env` out of Git.
 
-```dotenv
-FIREBASE_PROJECT_ID=your-firebase-project-id
-FIREBASE_CREDENTIALS_PATH=./secrets/firebase-service-account.json
-```
-
-In Firebase Console, create a service-account key for the project and save the JSON file at the configured path (or update the path to its location). Keep the private key file and `.env` out of Git. The API verifies Firebase ID tokens using this service account; roles come from the application's `users.role` column, never from client claims.
-
-Create the database, apply migrations, and start the API:
+Apply migrations and start the API:
 
 ```powershell
 alembic upgrade head
 uvicorn app.main:app --reload --port 8000
 ```
 
-- `GET http://localhost:8000/health`
-- `GET http://localhost:8000/auth/me` (requires `Authorization: Bearer <Firebase ID token>`)
-- `GET http://localhost:8000/roles/patient`
-- `GET http://localhost:8000/roles/doctor`
-- `GET http://localhost:8000/roles/admin`
-- OpenAPI: `http://localhost:8000/docs`
+OpenAPI documentation is at `http://localhost:8000/docs`. `/health/ready` checks the PostgreSQL connection.
 
-New verified users are created with the `patient` role. A trusted administrator must assign elevated `doctor` or `admin` roles in the database; a requested role from the client is ignored.
+## API
 
-## Focused Phase 2 tests
+All authenticated requests use `Authorization: Bearer <Firebase ID token>`. Firebase Admin verifies tokens, including revoked-token checks. Application roles are read from the database; new verified users start as patients. Assign doctor and admin roles through a trusted backend process.
 
-From the `backend` directory, run:
+| Method and path | Purpose | Access |
+| --- | --- | --- |
+| `GET /health`, `GET /health/ready` | Liveness and database readiness | Public |
+| `GET /auth/me` | Current application user | Authenticated |
+| `POST /patients`, `GET /patients/{patient_id}`, `PATCH /patients/{patient_id}` | Create and manage a patient profile | Patient owns their record; admins can read records |
+| `GET /patients/me/medical-id` | Return own Medical ID and canonical QR payload (`carekey://medical-id/{id}`) | Patient |
+| `POST /consents` | Grant a doctor named permissions with an optional expiry | Patient |
+| `GET /consents` | List the caller's grants | Patient or doctor |
+| `POST /consents/{consent_id}/revoke` | Revoke an active grant | Owning patient |
+| `POST /emergency/{medical_id}` | Read a restricted emergency summary; requires a reason and writes an access log for successful and denied attempts | Doctor role |
+| `GET /hospitals` | Filter and page through hospitals | Public |
+| `POST /hospitals` | Add a hospital | Admin |
+| `GET /roles/patient`, `GET /roles/doctor`, `GET /roles/admin` | Role-gated probes | Matching role |
+
+The QR payload is a string for a client to render as a QR code. After scanning, the client can submit the Medical ID to the emergency endpoint; the server still requires a doctor token and a reason. Emergency access is audited and does not claim face or biometric verification. The hospital directory does not yet calculate nearest facilities or routing.
+
+## Verification
+
+Run the backend suite from this directory:
 
 ```powershell
-pytest tests/test_auth.py tests/test_roles.py tests/test_user_model.py
+pytest -q
 ```
 
-These authentication and RBAC tests mock Firebase token verification and use an in-memory fake database, so they do not need Firebase credentials, a Firebase project connection, or a running PostgreSQL server. `test_auth.py` covers missing and invalid tokens, verified identity, `/auth/me`, and patient bootstrap; `test_roles.py` covers patient, doctor, admin access and forbidden role access.
+The suite mocks Firebase token verification and uses fake database sessions for route tests. It does not verify a live Firebase credential or replace integration testing against a disposable PostgreSQL database.
 
-## Phase 2 functionality
+## Configuration
 
-- Firebase Admin verifies bearer ID tokens and handles invalid, expired, revoked, disabled, and unavailable-token cases.
-- `/auth/me` returns the authenticated application user, creating a patient-role user on first verified login.
-- Role-gated endpoints authorize from the stored application role and reject unauthorized access.
-- Focused tests exercise authentication and role enforcement without external credentials or services.
-
-## Environment variables
-
-See [`.env.example`](.env.example) for the remaining application settings. `DATABASE_URL` is needed for the running API; `FIREBASE_PROJECT_ID` and `FIREBASE_CREDENTIALS_PATH` are needed for real Firebase-authenticated API requests. OSRM and local file storage are outside the Phase 2 authentication scope.
+See [`.env.example`](.env.example). Firebase credentials are required for real authenticated requests. Private medical document uploads use Supabase Storage signed URLs; configure `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and a private `medical-documents` bucket before enabling uploads. Keep the Storage service key only in the backend environment. OSRM routing is not implemented.

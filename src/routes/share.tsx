@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
+import { carekeyRequest } from "@/lib/carekey-api";
 import { useAuth } from "@/hooks/useAuth";
 import { RequireRole } from "@/components/RequireRole";
 import { PageHeading } from "@/components/AppShell";
@@ -61,7 +61,7 @@ type ConsentRow = {
 };
 
 function SharePage() {
-  const { user, profile } = useAuth();
+  const { user } = useAuth();
   const qc = useQueryClient();
   const [providerId, setProviderId] = useState("");
   const [perms, setPerms] = useState<Category[]>([]);
@@ -71,25 +71,16 @@ function SharePage() {
   const [busy, setBusy] = useState(false);
 
   const doctors = useQuery({
-    queryKey: ["doctors"],
-    queryFn: async () => {
-      const { data: roles } = await supabase.from("profiles").select("id, full_name, organization, specialty");
-      return roles ?? [];
-    },
+    queryKey: ["doctors", user?.id],
+    enabled: !!user,
+    queryFn: () => carekeyRequest<Array<{ id: string; full_name: string; organization: string | null; specialty: string | null }>>("/roles/doctors", user!),
   });
 
   const consents = useQuery({
     queryKey: ["my-consents", user?.id],
     enabled: !!user,
     queryFn: async () => {
-      await supabase.rpc("expire_stale_consents");
-      const { data, error } = await supabase
-        .from("consents")
-        .select("*")
-        .eq("patient_id", user!.id)
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      return data as ConsentRow[];
+      return carekeyRequest<ConsentRow[]>("/consents", user!);
     },
   });
 
@@ -98,17 +89,6 @@ function SharePage() {
     const d = doctorList.find((x) => x.id === id);
     return d ? `${d.full_name}${d.organization ? ` · ${d.organization}` : ""}` : "Provider";
   };
-
-  async function log(action: string, providerId: string, categories: string[] = []) {
-    await supabase.from("access_logs").insert({
-      patient_id: user!.id,
-      provider_id: providerId,
-      provider_name: profile?.full_name ?? "Patient",
-      action,
-      categories,
-      access_type: "consent_change",
-    });
-  }
 
   async function grant() {
     if (!user) return;
@@ -123,32 +103,34 @@ function SharePage() {
       expires = new Date(Date.now() + Number(duration) * 3600_000);
     }
     setBusy(true);
-    const { error } = await supabase.from("consents").insert({
-      patient_id: user.id,
+    try {
+      await carekeyRequest("/consents", user, {
+        method: "POST",
+        body: JSON.stringify({
       provider_id: providerId,
       permissions: perms,
       purpose,
-      status: "active",
       expires_at: expires.toISOString(),
-    });
+        }),
+      });
+    } catch (error) {
+      setBusy(false);
+      return toast.error(error instanceof Error ? error.message : "Could not grant access");
+    }
     setBusy(false);
-    if (error) return toast.error(error.message);
-    await log(`Consent granted to ${nameOf(providerId)}`, providerId, perms);
     toast.success("Access granted");
     setPerms([]);
     await qc.invalidateQueries({ queryKey: ["my-consents"] });
   }
 
   async function setStatus(c: ConsentRow, status: "revoked" | "active" | "rejected") {
-    const patch: { status: typeof status; revoked_at?: string; expires_at?: string } = { status };
-    if (status === "revoked") patch.revoked_at = new Date().toISOString();
-    if (status === "active" && !c.expires_at)
-      patch.expires_at = new Date(Date.now() + 7 * 86400_000).toISOString();
-    const { error } = await supabase.from("consents").update(patch).eq("id", c.id);
-    if (error) return toast.error(error.message);
-    const verb = status === "revoked" ? "revoked" : status === "active" ? "approved" : "rejected";
-    await log(`Consent ${verb} for ${nameOf(c.provider_id)}`, c.provider_id, c.permissions);
-    toast.success(`Access ${verb}`);
+    if (status !== "revoked") return;
+    try {
+      await carekeyRequest(`/consents/${c.id}/revoke`, user!, { method: "POST" });
+    } catch (error) {
+      return toast.error(error instanceof Error ? error.message : "Could not revoke access");
+    }
+    toast.success("Access revoked");
     await qc.invalidateQueries({ queryKey: ["my-consents"] });
   }
 
@@ -161,6 +143,7 @@ function SharePage() {
         title="Share medical information"
         description="You decide who sees what, and for how long. Access can be revoked at any time."
       />
+
 
       {pending.length > 0 ? (
         <section className="mb-6 rounded-lg border-2 border-warning bg-warning-soft p-5">

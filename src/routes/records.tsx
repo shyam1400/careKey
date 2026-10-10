@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
+import { carekeyRequest } from "@/lib/carekey-api";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { RequireRole } from "@/components/RequireRole";
@@ -41,13 +42,13 @@ export const Route = createFileRoute("/records")({
   ),
 });
 
-export async function openDocument(path: string | null) {
-  if (!path) return toast.error("File not available");
-  const { data, error } = await supabase.storage
-    .from("medical-documents")
-    .createSignedUrl(path, 60);
-  if (error || !data) return toast.error(error?.message ?? "Could not open file");
-  window.open(data.signedUrl, "_blank", "noopener");
+export async function openDocument(documentId: string, user: NonNullable<ReturnType<typeof useAuth>["user"]>) {
+  try {
+    const { url } = await carekeyRequest<{ url: string }>(`/records/documents/${documentId}/download-url`, user, { method: "POST" });
+    window.open(url, "_blank", "noopener");
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : "Could not open file");
+  }
 }
 
 function RecordsPage() {
@@ -61,13 +62,7 @@ function RecordsPage() {
     queryKey: ["documents", user?.id],
     enabled: !!user,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("documents")
-        .select("*")
-        .eq("patient_id", user!.id)
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      return data;
+      return carekeyRequest<Array<{ id: string; file_name: string; doc_type: string; storage_path: string | null; created_at: string }>>("/records/documents", user!);
     },
   });
 
@@ -75,30 +70,45 @@ function RecordsPage() {
     if (!user || !file) return toast.error("Choose a file first");
     if (file.size > 10 * 1024 * 1024) return toast.error("Max file size is 10 MB");
     setBusy(true);
-    const safe = file.name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 100);
-    const path = `${user.id}/${Date.now()}-${safe}`;
-    const up = await supabase.storage.from("medical-documents").upload(path, file);
-    if (up.error) {
+    let path: string | null = null;
+    try {
+      const signed = await carekeyRequest<{ path: string; token: string }>("/records/documents/upload-token", user, {
+        method: "POST",
+        body: JSON.stringify({ file_name: file.name, content_type: file.type }),
+      });
+      path = signed.path;
+      const { error: uploadError } = await supabase.storage
+        .from("medical-documents")
+        .uploadToSignedUrl(signed.path, signed.token, file, { contentType: file.type });
+      if (uploadError) throw uploadError;
+      await carekeyRequest("/records/documents", user, {
+        method: "POST",
+        body: JSON.stringify({ file_name: file.name.slice(0, 150), doc_type: docType, storage_path: path }),
+      });
+    } catch (error) {
+      if (path) {
+        try {
+          await carekeyRequest("/records/documents/storage-object", user, {
+            method: "DELETE",
+            body: JSON.stringify({ path }),
+          });
+        } catch { /* best-effort cleanup */ }
+      }
       setBusy(false);
-      return toast.error(up.error.message);
+      return toast.error(error instanceof Error ? error.message : "Upload failed");
     }
-    const { error } = await supabase.from("documents").insert({
-      patient_id: user.id,
-      file_name: file.name.slice(0, 150),
-      doc_type: docType,
-      storage_path: path,
-    });
     setBusy(false);
-    if (error) return toast.error(error.message);
     setFile(null);
     toast.success("Document uploaded");
     await qc.invalidateQueries({ queryKey: ["documents", user.id] });
   }
 
-  async function remove(id: string, path: string | null) {
-    if (path) await supabase.storage.from("medical-documents").remove([path]);
-    const { error } = await supabase.from("documents").delete().eq("id", id);
-    if (error) return toast.error(error.message);
+  async function remove(id: string) {
+    try {
+      await carekeyRequest(`/records/documents/${id}`, user!, { method: "DELETE" });
+    } catch (error) {
+      return toast.error(error instanceof Error ? error.message : "Could not delete document");
+    }
     await qc.invalidateQueries({ queryKey: ["documents", user?.id] });
   }
 
@@ -167,10 +177,10 @@ function RecordsPage() {
                     <td className="p-3">{formatDate(d.created_at)}</td>
                     <td className="p-3">{profile?.full_name}</td>
                     <td className="space-x-1 whitespace-nowrap p-3 text-right">
-                      <Button size="sm" variant="outline" onClick={() => openDocument(d.storage_path)}>
+                      <Button size="sm" variant="outline" onClick={() => openDocument(d.id, user!)}>
                         View
                       </Button>
-                      <Button size="sm" variant="ghost" onClick={() => remove(d.id, d.storage_path)}>
+                      <Button size="sm" variant="ghost" onClick={() => remove(d.id)}>
                         Delete
                       </Button>
                     </td>

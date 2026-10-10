@@ -1,21 +1,23 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import type { Session, User } from "@supabase/supabase-js";
-import { supabase } from "@/integrations/supabase/client";
+import {
+  onAuthStateChanged,
+  signOut as firebaseSignOut,
+  type User,
+} from "firebase/auth";
+import { getFirebaseAuth } from "@/lib/firebase";
+import { loadAppUser, type AppRole, type Patient } from "@/lib/carekey-api";
 
-export type Role = "patient" | "doctor" | "admin";
-
-type Profile = {
+export type Role = AppRole;
+export type Profile = Pick<Patient, "id" | "full_name" | "email" | "organization" | "specialty">;
+export type AuthenticatedUser = Pick<User, "email" | "displayName" | "getIdToken"> & {
   id: string;
-  full_name: string;
-  email: string | null;
-  organization: string | null;
-  specialty: string | null;
+  firebaseUid: string;
 };
 
 type AuthState = {
   loading: boolean;
-  session: Session | null;
-  user: User | null;
+  session: User | null;
+  user: AuthenticatedUser | null;
   profile: Profile | null;
   role: Role | null;
   medicalId: string | null;
@@ -26,114 +28,80 @@ type AuthState = {
 const AuthContext = createContext<AuthState | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [session, setSession] = useState<Session | null>(null);
+  const [session, setSession] = useState<User | null>(null);
+  const [user, setUser] = useState<AuthenticatedUser | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [role, setRole] = useState<Role | null>(null);
   const [medicalId, setMedicalId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  async function bootstrap(current: Session | null) {
-    if (!current?.user) {
+  async function bootstrap(user: User | null) {
+    if (!user) {
+      setUser(null);
       setProfile(null);
       setRole(null);
       setMedicalId(null);
       setLoading(false);
       return;
     }
-    const user = current.user;
-    const meta = (user.user_metadata ?? {}) as Record<string, string>;
-
-    let { data: prof } = await supabase
-      .from("profiles")
-      .select("id, full_name, email, organization, specialty")
-      .eq("id", user.id)
-      .maybeSingle();
-
-    if (!prof) {
-      await supabase.from("profiles").insert({
-        id: user.id,
-        full_name: meta.full_name || user.email || "Unnamed",
-        email: user.email ?? null,
-        organization: meta.organization || null,
-        specialty: meta.specialty || null,
+    setLoading(true);
+    try {
+      const result = await loadAppUser(user);
+      setUser({
+        id: result.user.id,
+        firebaseUid: result.user.firebase_uid,
+        email: user.email,
+        displayName: user.displayName,
+        getIdToken: (forceRefresh) => user.getIdToken(forceRefresh),
       });
-      const res = await supabase
-        .from("profiles")
-        .select("id, full_name, email, organization, specialty")
-        .eq("id", user.id)
-        .maybeSingle();
-      prof = res.data;
-    }
-    setProfile(prof ?? null);
-
-    let { data: roleRow } = await supabase
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", user.id)
-      .maybeSingle();
-
-    if (!roleRow) {
-      const desired = (meta.role as Role) || "patient";
-      await supabase.from("user_roles").insert({ user_id: user.id, role: desired });
-      const res = await supabase
-        .from("user_roles")
-        .select("role")
-        .eq("user_id", user.id)
-        .maybeSingle();
-      roleRow = res.data;
-    }
-    const resolved = (roleRow?.role as Role) ?? "patient";
-    setRole(resolved);
-
-    if (resolved === "patient") {
-      let { data: pat } = await supabase
-        .from("patients")
-        .select("medical_id")
-        .eq("id", user.id)
-        .maybeSingle();
-      if (!pat) {
-        await supabase.from("patients").insert({ id: user.id });
-        const res = await supabase
-          .from("patients")
-          .select("medical_id")
-          .eq("id", user.id)
-          .maybeSingle();
-        pat = res.data;
+      setRole(result.user.role);
+      if (result.patient) {
+        setProfile({ ...result.patient, email: result.patient.email ?? user.email });
+        setMedicalId(result.patient.medical_id);
+      } else {
+        setProfile({
+          id: result.user.id,
+          full_name: user.displayName || user.email || "CareKey user",
+          email: result.user.email,
+          organization: null,
+          specialty: null,
+        });
+        setMedicalId(null);
       }
-      setMedicalId(pat?.medical_id ?? null);
+    } catch (error) {
+      console.error("Could not load the CareKey account", error);
+      setProfile(null);
+      setRole(null);
+      setMedicalId(null);
+      setUser(null);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }
 
   useEffect(() => {
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, next) => {
-      setSession(next);
-      setLoading(true);
-      setTimeout(() => {
-        void bootstrap(next);
-      }, 0);
-    });
-    void supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
-      void bootstrap(data.session);
-    });
-    return () => sub.subscription.unsubscribe();
+    let unsubscribe: (() => void) | undefined;
+    try {
+      unsubscribe = onAuthStateChanged(getFirebaseAuth(), (nextUser) => {
+        setSession(nextUser);
+        void bootstrap(nextUser);
+      });
+    } catch (error) {
+      console.error("Firebase Auth could not be started", error);
+      setLoading(false);
+    }
+    return () => unsubscribe?.();
   }, []);
 
   const value: AuthState = {
     loading,
     session,
-    user: session?.user ?? null,
+    user,
     profile,
     role,
     medicalId,
-    refresh: async () => {
-      const { data } = await supabase.auth.getSession();
-      await bootstrap(data.session);
-    },
-    signOut: async () => {
-      await supabase.auth.signOut();
-    },
+    refresh: async () => bootstrap(getFirebaseAuth().currentUser),
+    signOut: async () => firebaseSignOut(getFirebaseAuth()),
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

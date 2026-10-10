@@ -1,7 +1,6 @@
 import { createFileRoute, ClientOnly, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { lazy, Suspense, useMemo, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { AppShell, PageHeading } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
@@ -75,9 +74,20 @@ function HospitalsPage() {
   const { data: hospitals = [] } = useQuery({
     queryKey: ["hospitals"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("hospitals").select("*");
-      if (error) throw error;
-      return data;
+      const response = await fetch(`${import.meta.env.VITE_CAREKEY_API_URL || "http://localhost:8000"}/hospitals`);
+      if (!response.ok) throw new Error("Could not load hospitals from the CareKey API.");
+      return (await response.json()) as Array<{
+        id: string;
+        name: string;
+        latitude: number;
+        longitude: number;
+        address: string | null;
+        phone: string | null;
+        emergency: boolean;
+        trauma: boolean;
+        ambulance: boolean;
+        open_24h: boolean;
+      }>;
     },
   });
 

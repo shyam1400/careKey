@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { carekeyRequest } from "@/lib/carekey-api";
+import { useAuth } from "@/hooks/useAuth";
 import { RequireRole } from "@/components/RequireRole";
 import { formatDateTime } from "@/lib/carekey";
 
@@ -21,16 +22,12 @@ export const Route = createFileRoute("/admin")({
 });
 
 function AdminPage() {
+  const { user } = useAuth();
   const { data, isLoading } = useQuery({
-    queryKey: ["admin-logs"],
+    queryKey: ["admin-logs", user?.id],
+    enabled: !!user,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("access_logs")
-        .select("*")
-        .order("created_at", { ascending: false })
-        .limit(100);
-      if (error) throw error;
-      return data ?? [];
+      return carekeyRequest<Array<{ id: string; action: string; provider_name: string | null; success: boolean; created_at: string }>>("/audit/admin", user!);
     },
   });
 
