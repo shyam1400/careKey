@@ -67,7 +67,9 @@ type FilterKey = (typeof FILTERS)[number]["key"];
 
 function HospitalsPage() {
   const [loc, setLoc] = useState<{ lat: number; lon: number } | null>(null);
+  const [locAccuracy, setLocAccuracy] = useState<number | null>(null);
   const [locStatus, setLocStatus] = useState<"idle" | "asking" | "granted" | "denied">("idle");
+  const [locError, setLocError] = useState<string | null>(null);
   const [filters, setFilters] = useState<FilterKey[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
 
@@ -94,21 +96,39 @@ function HospitalsPage() {
 
   function locate() {
     if (!("geolocation" in navigator)) {
+      setLoc(null);
+      setLocAccuracy(null);
       setLocStatus("denied");
-      setLoc(DEFAULT);
+      setLocError("This browser does not support location. Showing distances from the demo city centre.");
       return;
     }
     setLocStatus("asking");
+    setLocError(null);
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        setLoc({ lat: pos.coords.latitude, lon: pos.coords.longitude });
+        const { latitude, longitude, accuracy } = pos.coords;
+        if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || Math.abs(latitude) > 90 || Math.abs(longitude) > 180) {
+          setLoc(null);
+          setLocAccuracy(null);
+          setLocStatus("denied");
+          setLocError("Your device returned invalid coordinates. Showing distances from the demo city centre.");
+          return;
+        }
+        setLoc({ lat: latitude, lon: longitude });
+        setLocAccuracy(Number.isFinite(accuracy) && accuracy > 0 ? accuracy : null);
         setLocStatus("granted");
       },
-      () => {
-        setLoc(DEFAULT);
+      (error) => {
+        setLoc(null);
+        setLocAccuracy(null);
         setLocStatus("denied");
+        setLocError(error.code === error.PERMISSION_DENIED
+          ? "Location permission was denied. Allow location access for this site in your browser settings, then retry. Showing distances from the demo city centre."
+          : error.code === error.TIMEOUT
+            ? "Your device took too long to provide a location. Check that device location services are on, then retry. Showing distances from the demo city centre."
+            : "Your device could not determine a location. Check that device location services are on, then retry. Showing distances from the demo city centre.");
       },
-      { enableHighAccuracy: true, timeout: 10000 },
+      { enableHighAccuracy: true, timeout: 25000, maximumAge: 0 },
     );
   }
 
@@ -142,7 +162,14 @@ function HospitalsPage() {
       />
       {locStatus === "denied" ? (
         <p className="mb-4 rounded-md bg-warning-soft p-3 text-sm text-warning-foreground">
-          Location unavailable — showing distances from the demo city centre instead.
+          {locError}
+        </p>
+      ) : null}
+      {locStatus === "granted" && locAccuracy !== null ? (
+        <p className={`mb-4 rounded-md p-3 text-sm ${locAccuracy > 1500 ? "bg-warning-soft text-warning-foreground" : "bg-success-soft"}`}>
+          {locAccuracy > 1500
+            ? `Your device provided a rough location (about ±${(locAccuracy / 1000).toFixed(1)} km). Turn on precise location in device settings and retry for a better result.`
+            : `Using your device location (about ±${Math.max(1, Math.round(locAccuracy))} m).`}
         </p>
       ) : null}
       {locStatus === "idle" ? (
