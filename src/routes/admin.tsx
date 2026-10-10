@@ -42,7 +42,14 @@ type Hospital = {
   latitude: number;
   longitude: number;
   address: string | null;
+  phone: string | null;
+  emergency: boolean;
+  trauma: boolean;
+  ambulance: boolean;
+  open_24h: boolean;
 };
+
+type HospitalFields = Omit<Hospital, "id">;
 
 function AdminPage() {
   const { user } = useAuth();
@@ -63,7 +70,7 @@ function AdminPage() {
     queryFn: () => carekeyRequest<Hospital[]>("/hospitals", user!),
   });
 
-  async function saveUser(id: string, values: { role: "patient" | "doctor"; full_name: string; organization: string; specialty: string }) {
+  async function saveUser(id: string, values: { role: "patient" | "doctor"; full_name: string; organization: string; specialty: string }): Promise<boolean> {
     try {
       await carekeyRequest<AdminUser>(`/admin/users/${id}`, user!, {
         method: "PATCH",
@@ -77,8 +84,26 @@ function AdminPage() {
       toast.success("User updated");
       await qc.invalidateQueries({ queryKey: ["admin-users"] });
       await qc.invalidateQueries({ queryKey: ["doctors"] });
+      return true;
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not update user");
+      return false;
+    }
+  }
+
+  async function setDoctorActive(account: AdminUser, isActive: boolean) {
+    if (!user) return;
+    if (!window.confirm(`${isActive ? "Reactivate" : "Deactivate"} doctor access for ${account.email ?? account.full_name ?? "this account"}?`)) return;
+    try {
+      await carekeyRequest(`/admin/users/${account.id}/status`, user, {
+        method: "PATCH",
+        body: JSON.stringify({ is_active: isActive }),
+      });
+      toast.success(isActive ? "Doctor access reactivated" : "Doctor access deactivated");
+      await qc.invalidateQueries({ queryKey: ["admin-users"] });
+      await qc.invalidateQueries({ queryKey: ["doctors"] });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not update doctor access");
     }
   }
 
@@ -109,6 +134,32 @@ function AdminPage() {
     }
   }
 
+  async function updateHospital(id: string, payload: HospitalFields): Promise<boolean> {
+    if (!user) return false;
+    try {
+      await carekeyRequest(`/hospitals/${id}`, user, { method: "PATCH", body: JSON.stringify(payload) });
+      toast.success("Hospital updated");
+      await qc.invalidateQueries({ queryKey: ["admin-hospitals"] });
+      await qc.invalidateQueries({ queryKey: ["hospitals"] });
+      return true;
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not update hospital");
+      return false;
+    }
+  }
+
+  async function deleteHospital(hospital: Hospital) {
+    if (!user || !window.confirm(`Delete ${hospital.name} from the hospital directory?`)) return;
+    try {
+      await carekeyRequest(`/hospitals/${hospital.id}`, user, { method: "DELETE" });
+      toast.success("Hospital deleted from the directory");
+      await qc.invalidateQueries({ queryKey: ["admin-hospitals"] });
+      await qc.invalidateQueries({ queryKey: ["hospitals"] });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not delete hospital");
+    }
+  }
+
   return (
     <div className="space-y-8">
       <header>
@@ -125,7 +176,7 @@ function AdminPage() {
         {users.error ? <p role="alert" className="text-sm text-destructive">Could not load users: {users.error.message}</p> : null}
         <div className="space-y-3">
           {(users.data ?? []).map((account) => (
-            <AdminUserRow key={account.id} account={account} onSave={saveUser} />
+            <AdminUserRow key={account.id} account={account} onSave={saveUser} onSetActive={setDoctorActive} />
           ))}
           {!users.isLoading && !users.error && !users.data?.length ? (
             <div className="card-surface p-4 text-sm text-muted-foreground">No registered users yet.</div>
@@ -158,10 +209,7 @@ function AdminPage() {
           <h2 className="text-lg font-semibold">Hospital directory ({hospitals.data?.length ?? 0})</h2>
           {hospitals.error ? <p role="alert" className="text-sm text-destructive">Could not load hospitals: {hospitals.error.message}</p> : null}
           {(hospitals.data ?? []).map((hospital) => (
-            <div className="card-surface p-4" key={hospital.id}>
-              <p className="font-medium">{hospital.name}</p>
-              <p className="text-sm text-muted-foreground">{hospital.address || `${hospital.latitude}, ${hospital.longitude}`}</p>
-            </div>
+            <HospitalRow key={hospital.id} hospital={hospital} onSave={updateHospital} onDelete={deleteHospital} />
           ))}
         </div>
       </section>
@@ -190,10 +238,12 @@ function AdminPage() {
   );
 }
 
-function AdminUserRow({ account, onSave }: {
+function AdminUserRow({ account, onSave, onSetActive }: {
   account: AdminUser;
-  onSave: (id: string, values: { role: "patient" | "doctor"; full_name: string; organization: string; specialty: string }) => Promise<void>;
+  onSave: (id: string, values: { role: "patient" | "doctor"; full_name: string; organization: string; specialty: string }) => Promise<boolean>;
+  onSetActive: (account: AdminUser, isActive: boolean) => Promise<void>;
 }) {
+  const [editing, setEditing] = useState(false);
   const [role, setRole] = useState<"patient" | "doctor">(account.role === "doctor" ? "doctor" : "patient");
   const [fullName, setFullName] = useState(account.full_name ?? "");
   const [organization, setOrganization] = useState(account.organization ?? "");
@@ -210,13 +260,68 @@ function AdminUserRow({ account, onSave }: {
     <div className="card-surface grid gap-3 p-4 md:grid-cols-2">
       <div className="md:col-span-2">
         <p className="font-medium">{account.email ?? "No email"}</p>
-        <p className="text-xs text-muted-foreground">Current role: {account.role}{account.is_active ? "" : " · inactive"}</p>
+        <p className="text-xs text-muted-foreground">Current role: {account.role}{account.is_active ? " · active" : " · deactivated"}</p>
       </div>
-      <div className="space-y-1.5"><Label>Name</Label><Input value={fullName} maxLength={100} onChange={(event) => setFullName(event.target.value)} /></div>
-      <div className="space-y-1.5"><Label>Role</Label><select className="h-10 w-full rounded-md border bg-background px-3 text-sm" value={role} onChange={(event) => setRole(event.target.value as "patient" | "doctor")}><option value="patient">Patient</option><option value="doctor">Doctor</option></select></div>
-      <div className="space-y-1.5"><Label>Organization</Label><Input value={organization} maxLength={120} onChange={(event) => setOrganization(event.target.value)} /></div>
-      <div className="space-y-1.5"><Label>Specialty</Label><Input value={specialty} maxLength={120} onChange={(event) => setSpecialty(event.target.value)} /></div>
-      <div className="md:col-span-2"><Button size="sm" onClick={() => void onSave(account.id, { role, full_name: fullName, organization, specialty })}>Save user</Button></div>
+      {editing ? <>
+        <div className="space-y-1.5"><Label>Name</Label><Input value={fullName} maxLength={100} onChange={(event) => setFullName(event.target.value)} /></div>
+        <div className="space-y-1.5"><Label>Role</Label><select className="h-10 w-full rounded-md border bg-background px-3 text-sm" value={role} onChange={(event) => setRole(event.target.value as "patient" | "doctor")}><option value="patient">Patient</option><option value="doctor">Doctor</option></select></div>
+        <div className="space-y-1.5"><Label>Organization</Label><Input value={organization} maxLength={120} onChange={(event) => setOrganization(event.target.value)} /></div>
+        <div className="space-y-1.5"><Label>Specialty</Label><Input value={specialty} maxLength={120} onChange={(event) => setSpecialty(event.target.value)} /></div>
+        <div className="flex gap-2 md:col-span-2">
+          <Button size="sm" onClick={() => { void onSave(account.id, { role, full_name: fullName, organization, specialty }).then((saved) => { if (saved) setEditing(false); }); }}>Save changes</Button>
+          <Button size="sm" variant="outline" onClick={() => setEditing(false)}>Cancel</Button>
+        </div>
+      </> : <div className="flex flex-wrap gap-2 md:col-span-2">
+        <Button size="sm" variant="outline" onClick={() => setEditing(true)}>Edit {account.role === "doctor" ? "doctor" : "user"}</Button>
+        {account.role === "doctor" ? <Button size="sm" variant="outline" onClick={() => void onSetActive(account, !account.is_active)}>{account.is_active ? "Deactivate doctor" : "Reactivate doctor"}</Button> : null}
+      </div>}
+    </div>
+  );
+}
+
+function HospitalRow({ hospital, onSave, onDelete }: {
+  hospital: Hospital;
+  onSave: (id: string, values: HospitalFields) => Promise<boolean>;
+  onDelete: (hospital: Hospital) => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const saved = await onSave(hospital.id, {
+      name: String(form.get("name") || "").trim(),
+      latitude: Number(form.get("latitude")),
+      longitude: Number(form.get("longitude")),
+      address: String(form.get("address") || "").trim() || null,
+      phone: String(form.get("phone") || "").trim() || null,
+      emergency: form.get("emergency") === "on",
+      trauma: form.get("trauma") === "on",
+      ambulance: form.get("ambulance") === "on",
+      open_24h: form.get("open_24h") === "on",
+    });
+    if (saved) setEditing(false);
+  }
+  return editing ? (
+    <form className="card-surface space-y-3 p-4" onSubmit={(event) => void submit(event)}>
+      <div className="space-y-1.5"><Label>Name</Label><Input name="name" defaultValue={hospital.name} required maxLength={200} /></div>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1.5"><Label>Latitude</Label><Input name="latitude" type="number" min="-90" max="90" step="any" defaultValue={hospital.latitude} required /></div>
+        <div className="space-y-1.5"><Label>Longitude</Label><Input name="longitude" type="number" min="-180" max="180" step="any" defaultValue={hospital.longitude} required /></div>
+      </div>
+      <div className="space-y-1.5"><Label>Address</Label><Input name="address" defaultValue={hospital.address ?? ""} /></div>
+      <div className="space-y-1.5"><Label>Phone</Label><Input name="phone" type="tel" maxLength={32} defaultValue={hospital.phone ?? ""} /></div>
+      <div className="flex flex-wrap gap-4 text-sm">
+        <label className="flex items-center gap-2"><input type="checkbox" name="emergency" defaultChecked={hospital.emergency} />Emergency</label>
+        <label className="flex items-center gap-2"><input type="checkbox" name="trauma" defaultChecked={hospital.trauma} />Trauma</label>
+        <label className="flex items-center gap-2"><input type="checkbox" name="ambulance" defaultChecked={hospital.ambulance} />Ambulance</label>
+        <label className="flex items-center gap-2"><input type="checkbox" name="open_24h" defaultChecked={hospital.open_24h} />Open 24 hours</label>
+      </div>
+      <div className="flex gap-2"><Button size="sm" type="submit">Save changes</Button><Button size="sm" type="button" variant="outline" onClick={() => setEditing(false)}>Cancel</Button></div>
+    </form>
+  ) : (
+    <div className="card-surface flex flex-wrap items-start justify-between gap-3 p-4">
+      <div><p className="font-medium">{hospital.name}</p><p className="text-sm text-muted-foreground">{hospital.address || `${hospital.latitude}, ${hospital.longitude}`}</p></div>
+      <div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => setEditing(true)}>Edit</Button><Button size="sm" variant="destructive" onClick={() => void onDelete(hospital)}>Delete</Button></div>
     </div>
   );
 }

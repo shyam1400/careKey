@@ -23,3 +23,7 @@ class AdminUserResponse(BaseModel):
     is_active: bool
     organization: str | None
     specialty: str | None
+
+
+class AdminUserStatusUpdate(BaseModel):
+    is_active: bool

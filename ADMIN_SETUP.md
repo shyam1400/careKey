@@ -41,7 +41,7 @@ Only bootstrap an account you control. The app intentionally does not expose a p
 2. As the administrator, open **Admin → Users**, set that account's role to **Doctor**, enter a synthetic name, organization, and specialty, then save.
 3. The doctor signs out and back in. Patients can then select the doctor in **Sharing**. Use synthetic accounts and data only.
 
-The Admin page can also add fictional hospitals to the directory. A hospital is a directory record, not a user account. Do not enter real patient information or rely on demo hospital listings for care decisions.
+The Admin page can add, edit, and delete fictional hospitals. Doctor profiles can be edited there as well. Deactivating a doctor removes their API access while keeping their audit history, and can be reversed by reactivating them. A hospital is a directory record, not a user account. Do not enter real patient information or rely on demo hospital listings for care decisions.
 
 ## Doctor emergency passkeys
 

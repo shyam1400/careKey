@@ -38,7 +38,7 @@ export default function HospitalMap({
     <MapContainer
       center={[center.lat, center.lon]}
       zoom={12}
-      className="h-[420px] w-full rounded-lg border"
+      className="relative z-0 isolate h-[420px] w-full rounded-lg border"
       scrollWheelZoom
     >
       <MapViewport center={center} userLocation={userLocation} hospitals={hospitals} selectedHospitalId={selectedHospitalId} />

@@ -100,3 +100,27 @@ def test_admin_cannot_change_another_admin_role():
         _Db([admin, other_admin]), admin, "patch", f"/admin/users/{other_admin.id}", json={"role": "doctor"}
     )
     assert response.status_code == 403
+
+
+def test_admin_can_deactivate_doctor_and_audit_change():
+    admin = _user(AppRole.ADMIN)
+    doctor = _user(AppRole.DOCTOR)
+    db = _Db([admin, doctor])
+    response = _request(
+        db, admin, "patch", f"/admin/users/{doctor.id}/status", json={"is_active": False}
+    )
+    assert response.status_code == 200
+    assert response.json()["is_active"] is False
+    assert doctor.is_active is False
+    event = next(item for item in db.added if isinstance(item, AccessLog))
+    assert event.verification_result == "admin_doctor_status_change"
+    assert "deactivated doctor" in event.action
+
+
+def test_admin_cannot_deactivate_patient_as_a_doctor():
+    admin = _user(AppRole.ADMIN)
+    patient = _user(AppRole.PATIENT)
+    response = _request(
+        _Db([admin, patient]), admin, "patch", f"/admin/users/{patient.id}/status", json={"is_active": False}
+    )
+    assert response.status_code == 403

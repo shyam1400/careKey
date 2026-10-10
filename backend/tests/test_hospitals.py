@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.main import app
+from app.models.audit import AccessLog
 from app.models.enums import AppRole
 from app.models.hospital import Hospital
 from app.models.user import User
@@ -22,12 +23,22 @@ class _Result:
 class _Db:
     def __init__(self, hospitals=None):
         self.hospitals = hospitals or []
+        self.events = []
 
     def scalars(self, _statement):
         return _Result(self.hospitals)
 
     def add(self, value):
-        self.hospitals.append(value)
+        if isinstance(value, Hospital):
+            self.hospitals.append(value)
+        else:
+            self.events.append(value)
+
+    def get(self, model, key):
+        return next((hospital for hospital in self.hospitals if hospital.id == key), None)
+
+    def delete(self, value):
+        self.hospitals.remove(value)
 
     def commit(self):
         for hospital in self.hospitals:
@@ -86,3 +97,40 @@ def test_admin_can_add_hospital():
     assert response.status_code == 201
     assert response.json()["name"] == "City Emergency"
     assert response.json()["trauma"] is True
+
+
+def test_admin_can_edit_hospital_and_audit_change():
+    admin = _user(AppRole.ADMIN)
+    hospital = Hospital(
+        id=uuid4(), name="Old Name", latitude=12.9, longitude=77.6,
+        address="Old address", emergency=True, trauma=False, ambulance=True, open_24h=True,
+    )
+    db = _Db([hospital])
+    response = _request(
+        db, admin, "patch", f"/hospitals/{hospital.id}",
+        json={"name": "Updated Name", "trauma": True},
+    )
+    assert response.status_code == 200
+    assert response.json()["name"] == "Updated Name"
+    assert response.json()["trauma"] is True
+    assert any(event.verification_result == "admin_hospital_update" for event in db.events)
+
+
+def test_admin_can_delete_hospital_and_audit_change():
+    admin = _user(AppRole.ADMIN)
+    hospital = Hospital(id=uuid4(), name="Demo Hospital", latitude=12.9, longitude=77.6)
+    db = _Db([hospital])
+    response = _request(db, admin, "delete", f"/hospitals/{hospital.id}")
+    assert response.status_code == 204
+    assert hospital not in db.hospitals
+    assert any(event.verification_result == "admin_hospital_delete" for event in db.events)
+
+
+def test_only_admin_can_edit_or_delete_hospitals():
+    doctor = _user(AppRole.DOCTOR)
+    hospital = Hospital(id=uuid4(), name="Demo Hospital", latitude=12.9, longitude=77.6)
+    db = _Db([hospital])
+    update = _request(db, doctor, "patch", f"/hospitals/{hospital.id}", json={"name": "Changed"})
+    delete = _request(db, doctor, "delete", f"/hospitals/{hospital.id}")
+    assert update.status_code == 403
+    assert delete.status_code == 403

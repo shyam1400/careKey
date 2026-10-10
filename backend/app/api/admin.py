@@ -11,7 +11,7 @@ from app.models.audit import AccessLog
 from app.models.enums import AppRole
 from app.models.profile import Profile
 from app.models.user import User
-from app.schemas.admin import AdminUserResponse, AdminUserUpdate
+from app.schemas.admin import AdminUserResponse, AdminUserStatusUpdate, AdminUserUpdate
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -102,4 +102,42 @@ def update_user(
         "full_name": profile.full_name,
         "organization": profile.organization,
         "specialty": profile.specialty,
+    }
+
+
+@router.patch("/users/{user_id}/status", response_model=AdminUserResponse)
+def update_doctor_status(
+    user_id: UUID,
+    payload: AdminUserStatusUpdate,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_roles(AppRole.ADMIN)),
+) -> dict[str, Any]:
+    target = db.get(User, user_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    if target.role != AppRole.DOCTOR:
+        raise HTTPException(status_code=403, detail="Only doctor accounts can be deactivated here")
+    target.is_active = payload.is_active
+    profile = db.get(Profile, target.id)
+    db.add(target)
+    db.add(
+        AccessLog(
+            provider_name=(admin.email or str(admin.id))[:100],
+            action=f"Admin {'activated' if payload.is_active else 'deactivated'} doctor {target.email or target.id}",
+            categories=[],
+            access_type="administration",
+            verification_result="admin_doctor_status_change",
+            success=True,
+        )
+    )
+    db.commit()
+    db.refresh(target)
+    return {
+        "id": target.id,
+        "email": target.email,
+        "role": target.role,
+        "is_active": target.is_active,
+        "full_name": profile.full_name if profile else None,
+        "organization": profile.organization if profile else None,
+        "specialty": profile.specialty if profile else None,
     }
