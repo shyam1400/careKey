@@ -71,8 +71,9 @@ function HospitalsPage() {
   const [filters, setFilters] = useState<FilterKey[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
 
-  const { data: hospitals = [] } = useQuery({
+  const { data: hospitals = [], isLoading, error, refetch } = useQuery({
     queryKey: ["hospitals"],
+    staleTime: 60_000,
     queryFn: async () => {
       const response = await fetch(`${import.meta.env.VITE_CAREKEY_API_URL || "http://localhost:8000"}/hospitals`);
       if (!response.ok) throw new Error("Could not load hospitals from the CareKey API.");
@@ -132,7 +133,7 @@ function HospitalsPage() {
     <>
       <PageHeading
         title="Find nearby hospitals"
-        description="Hospitals sorted by straight-line distance from your location."
+        description="Distances are straight-line estimates. Open directions for a road route."
         action={
           <Button onClick={locate} disabled={locStatus === "asking"}>
             {locStatus === "asking" ? "Locating…" : loc ? "Update my location" : "Use my location"}
@@ -149,6 +150,12 @@ function HospitalsPage() {
           Tap “Use my location” to sort by distance from you. Until then, distances are from the demo
           city centre.
         </p>
+      ) : null}
+      {error ? (
+        <div role="alert" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+          <span>Could not load the hospital directory. Check your connection and retry.</span>
+          <Button size="sm" variant="outline" onClick={() => void refetch()}>Retry</Button>
+        </div>
       ) : null}
 
       <div className="mb-4 flex flex-wrap gap-4">
@@ -167,11 +174,17 @@ function HospitalsPage() {
 
       <ClientOnly fallback={<div className="h-[420px] animate-pulse rounded-lg bg-muted" />}>
         <Suspense fallback={<div className="h-[420px] animate-pulse rounded-lg bg-muted" />}>
-          <HospitalMap center={origin} hospitals={list} onSelect={setSelected} />
+          <HospitalMap center={origin} userLocation={loc} hospitals={list} selectedHospitalId={selected} onSelect={setSelected} />
         </Suspense>
       </ClientOnly>
 
-      <p className="mt-6 mb-3 text-sm text-muted-foreground">{list.length} hospitals found</p>
+      {isLoading ? <p className="mt-4 text-sm text-muted-foreground">Loading hospital directory…</p> : null}
+      {!isLoading && !error && list.length === 0 ? (
+        <div className="mt-4 rounded-lg border border-dashed p-5 text-sm text-muted-foreground">
+          No hospitals match these filters yet. An administrator can add fictional demo entries from the Admin page.
+        </div>
+      ) : null}
+      <p className="mt-6 mb-3 text-sm text-muted-foreground">{list.length} hospitals found · distances are approximate straight-line estimates</p>
       <div className="grid gap-4 md:grid-cols-2">
         {list.map((h) => (
           <div key={h.id} className="card-surface p-5">
@@ -192,7 +205,7 @@ function HospitalsPage() {
               </Button>
               <Button size="sm" asChild>
                 <a href={directionsUrl(h)} target="_blank" rel="noopener noreferrer">
-                  Get directions
+                  Open road directions
                 </a>
               </Button>
             </div>
@@ -210,13 +223,13 @@ function HospitalsPage() {
               </DialogHeader>
               <div className="space-y-2 text-sm">
                 <p>
-                  <strong>Address:</strong> {current.address}
+                    <strong>Address:</strong> {current.address || "Not provided"}
                 </p>
                 <p>
                   <strong>Phone:</strong>{" "}
-                  <a className="text-primary underline" href={`tel:${current.phone}`}>
-                    {current.phone}
-                  </a>
+                  {current.phone ? (
+                    <a className="text-primary underline" href={`tel:${current.phone}`}>{current.phone}</a>
+                  ) : "Not provided"}
                 </p>
                 <p>
                   <strong>Status:</strong> {current.open_24h ? "Open 24 hours" : "Limited hours"}
@@ -229,7 +242,7 @@ function HospitalsPage() {
               </div>
               <Button asChild className="mt-2">
                 <a href={directionsUrl(current)} target="_blank" rel="noopener noreferrer">
-                  Get directions
+                  Open road directions
                 </a>
               </Button>
             </>
