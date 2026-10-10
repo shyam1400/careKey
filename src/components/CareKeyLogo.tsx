@@ -3,8 +3,8 @@ import { Link } from "@tanstack/react-router";
 export function CareKeyLogo({ linked = true, className = "" }: { linked?: boolean; className?: string }) {
   const image = (
     <>
-      <img className={`h-8 w-auto dark:hidden ${className}`} src="/brand/carekey-wordmark-light.svg" alt="CareKey" />
-      <img className={`hidden h-8 w-auto dark:block ${className}`} src="/brand/carekey-wordmark-dark.svg" alt="CareKey" />
+      <img className={`h-9 w-auto dark:hidden sm:h-10 ${className}`} src="/brand/CareKey-full-logo-light.png" alt="CareKey — Secure Emergency Health Access" />
+      <img className={`hidden h-9 w-auto dark:block sm:h-10 ${className}`} src="/brand/CareKey-full-logo-dark.png" alt="CareKey — Secure Emergency Health Access" />
     </>
   );
 
