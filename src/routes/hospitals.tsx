@@ -13,6 +13,8 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { haversineKm } from "@/lib/carekey";
+import { CareKeyLogo } from "@/components/CareKeyLogo";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 const HospitalMap = lazy(() => import("@/components/HospitalMap"));
 
@@ -46,10 +48,14 @@ function HospitalsRoute() {
       <div className="bg-warning-soft px-4 py-1.5 text-center text-xs font-medium text-warning-foreground">
         Research Prototype — Not for Clinical Use. Demo hospital data.
       </div>
+      <header className="sticky top-0 z-40 border-b bg-background/95 backdrop-blur">
+        <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3">
+          <CareKeyLogo linked={false} />
+          <Link to="/" className="ml-auto text-sm text-muted-foreground hover:underline">Home</Link>
+          <ThemeToggle />
+        </div>
+      </header>
       <div className="mx-auto max-w-6xl px-4 py-6">
-        <Link to="/" className="mb-4 inline-block text-sm text-muted-foreground hover:underline">
-          ← CareKey home
-        </Link>
         {body}
       </div>
     </div>

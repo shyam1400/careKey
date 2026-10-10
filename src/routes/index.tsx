@@ -1,5 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
+import { CareKeyLogo } from "@/components/CareKeyLogo";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -42,16 +44,18 @@ function Landing() {
       <div className="bg-warning-soft px-4 py-1.5 text-center text-xs font-medium text-warning-foreground">
         Research Prototype — Not for Clinical Use. All data is synthetic.
       </div>
-      <header className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4">
-        <div className="flex items-center gap-2">
-          <span className="rounded-md bg-primary px-2 py-1 text-sm font-bold text-primary-foreground">
-            CK
-          </span>
-          <span className="text-lg font-semibold tracking-tight">CareKey</span>
+      <header className="sticky top-0 z-40 border-b bg-background/95 backdrop-blur">
+       <div className="mx-auto flex max-w-6xl items-center gap-5 px-4 py-3">
+        <CareKeyLogo linked={false} />
+        <nav aria-label="Main navigation" className="ml-auto hidden items-center gap-5 text-sm text-muted-foreground sm:flex">
+          <a href="#features" className="hover:text-foreground">Features</a>
+          <Link to="/hospitals" className="hover:text-foreground">Hospitals</Link>
+        </nav>
+        <div className="ml-auto flex items-center gap-2 sm:ml-0">
+          <ThemeToggle />
+          <Button asChild size="sm"><Link to="/auth">Sign in</Link></Button>
         </div>
-        <Button asChild size="sm">
-          <Link to="/auth">Sign in</Link>
-        </Button>
+       </div>
       </header>
 
       <section className="mx-auto max-w-6xl px-4 py-16">
@@ -74,7 +78,7 @@ function Landing() {
           </Button>
         </div>
 
-        <div className="mt-16 grid gap-4 md:grid-cols-3">
+        <div id="features" className="mt-16 grid gap-4 md:grid-cols-3">
           {features.map((f) => (
             <div key={f.title} className="card-surface p-6">
               <h2 className="text-base font-semibold">{f.title}</h2>

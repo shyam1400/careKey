@@ -3,6 +3,8 @@ import type { ReactNode } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { CareKeyLogo } from "@/components/CareKeyLogo";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 const patientNav = [
   { to: "/dashboard", label: "Dashboard" },
@@ -35,44 +37,42 @@ export function AppShell({ children }: { children: ReactNode }) {
       <div className="bg-warning-soft px-4 py-1.5 text-center text-xs font-medium text-warning-foreground">
         Research Prototype — Not for Clinical Use. All data is synthetic.
       </div>
-      <header className="border-b bg-card">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-3 px-4 py-3">
-          <Link to="/dashboard" className="flex items-center gap-2">
-            <span className="rounded-md bg-primary px-2 py-1 text-sm font-bold text-primary-foreground">
-              CK
-            </span>
-            <span className="text-lg font-semibold tracking-tight">CareKey</span>
-          </Link>
-          <nav className="order-3 flex w-full flex-wrap gap-1 md:order-none md:w-auto">
+      <header className="sticky top-0 z-40 border-b bg-card/95 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-card/85">
+        <div className="mx-auto max-w-6xl px-4">
+          <div className="flex min-h-14 items-center gap-3 py-2">
+            <CareKeyLogo />
+            <div className="ml-auto flex items-center gap-2">
+              <ThemeToggle />
+              <div className="hidden text-right sm:block">
+                <p className="max-w-44 truncate text-sm font-medium leading-tight">{profile?.full_name}</p>
+                <Badge variant="secondary" className="mt-0.5 text-[10px] uppercase">
+                  {role ?? "—"}
+                </Badge>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={async () => {
+                  await signOut();
+                  void navigate({ to: "/auth" });
+                }}
+              >
+                Log out
+              </Button>
+            </div>
+          </div>
+          <nav aria-label="Main navigation" className="-mx-4 flex gap-1 overflow-x-auto border-t px-4 py-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {nav.map((item) => (
               <Link
                 key={item.to}
                 to={item.to}
-                className="rounded-md px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                activeProps={{ className: "bg-secondary text-foreground" }}
+                className="shrink-0 rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                activeProps={{ className: "shrink-0 rounded-md bg-primary/10 px-3 py-2 text-sm font-semibold text-primary transition-colors" }}
               >
                 {item.label}
               </Link>
             ))}
           </nav>
-          <div className="ml-auto flex items-center gap-3">
-            <div className="text-right">
-              <p className="text-sm font-medium leading-tight">{profile?.full_name}</p>
-              <Badge variant="secondary" className="mt-0.5 text-[10px] uppercase">
-                {role ?? "—"}
-              </Badge>
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={async () => {
-                await signOut();
-                void navigate({ to: "/auth" });
-              }}
-            >
-              Log out
-            </Button>
-          </div>
         </div>
       </header>
       <main className="mx-auto max-w-6xl px-4 py-6">{children}</main>

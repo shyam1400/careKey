@@ -8,6 +8,8 @@ import { getFirebaseAuth, isFirebaseConfigured } from "@/lib/firebase";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { CareKeyLogo } from "@/components/CareKeyLogo";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 export const Route = createFileRoute("/auth")({
   head: () => ({
@@ -91,14 +93,10 @@ function AuthPage() {
       <div className="bg-warning-soft px-4 py-1.5 text-center text-xs font-medium text-warning-foreground">
         Research Prototype — Not for Clinical Use. Use synthetic data only.
       </div>
+      <div className="absolute right-4 top-12"><ThemeToggle /></div>
       <div className="flex flex-1 items-center justify-center px-4 py-12">
         <div className="card-surface w-full max-w-md p-8">
-          <div className="mb-6 flex items-center gap-2">
-            <span className="rounded-md bg-primary px-2 py-1 text-sm font-bold text-primary-foreground">
-              CK
-            </span>
-            <span className="text-lg font-semibold tracking-tight">CareKey</span>
-          </div>
+          <div className="mb-6"><CareKeyLogo linked={false} /></div>
           <h1 className="text-xl font-semibold">
             {mode === "signin" ? "Sign in" : "Create an account"}
           </h1>

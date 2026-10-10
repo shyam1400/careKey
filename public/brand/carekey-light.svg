@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1800 560" role="img" aria-labelledby="title">
+<title id="title">CareKey logo for light backgrounds</title>
+<defs><linearGradient id="ckGradient" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#00D9F5"/><stop offset="52%" stop-color="#00BFEF"/><stop offset="100%" stop-color="#075BFF"/></linearGradient></defs>
+<g transform="translate(25 15) scale(.52)">
+<g fill="url(#ckGradient)">
+<path fill-rule="evenodd" d="M500 110 680 205V340L605 295V255L500 200 330 285V625L500 735V825L245 665V300Z M500 200 605 255V295L500 245 385 305V595L500 675V735L330 625V285Z"/>
+<path d="M565 360 760 165H875L675 370 875 575H760L565 380Z"/>
+<path d="M462 340H568Q582 340 582 354V400H628Q642 400 642 414V481Q642 495 628 495H582V541Q582 555 568 555H462Q448 555 448 541V495H402Q388 495 388 481V414Q388 400 402 400H448V354Q448 340 462 340Z"/>
+</g><g fill="#050505"><circle cx="515" cy="432" r="29"/><path d="M500 450H530L542 520H488Z"/></g></g>
+<text x="570" y="290" font-family="Arial, Helvetica, sans-serif" font-size="190" font-weight="700" letter-spacing="-8" fill="#050F1E">Care</text>
+<text x="1010" y="290" font-family="Arial, Helvetica, sans-serif" font-size="190" font-weight="700" letter-spacing="-8" fill="#00D9F5">Key</text>
+<text x="578" y="370" font-family="Arial, Helvetica, sans-serif" font-size="31" letter-spacing="7" fill="#050F1E">SECURE EMERGENCY HEALTH ACCESS</text>
+</svg>
