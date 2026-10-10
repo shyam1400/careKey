@@ -45,7 +45,7 @@ function AuthPage() {
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
   const [busy, setBusy] = useState(false);
-  const { session, role: currentRole, loading } = useAuth();
+  const { session, role: currentRole, loading, accountError } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -107,6 +107,12 @@ function AuthPage() {
               ? "Sign in with your CareKey account."
               : "Create a patient account. Doctor and admin access is provisioned by an administrator."}
           </p>
+
+          {accountError ? (
+            <div role="alert" className="mt-4 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {accountError}
+            </div>
+          ) : null}
 
           <form className="mt-6 space-y-4" onSubmit={submit}>
             {mode === "signup" ? (

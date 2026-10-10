@@ -21,6 +21,7 @@ type AuthState = {
   profile: Profile | null;
   role: Role | null;
   medicalId: string | null;
+  accountError: string | null;
   refresh: () => Promise<void>;
   signOut: () => Promise<void>;
 };
@@ -33,9 +34,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [role, setRole] = useState<Role | null>(null);
   const [medicalId, setMedicalId] = useState<string | null>(null);
+  const [accountError, setAccountError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   async function bootstrap(user: User | null) {
+    setAccountError(null);
     if (!user) {
       setUser(null);
       setProfile(null);
@@ -70,6 +73,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     } catch (error) {
       console.error("Could not load the CareKey account", error);
+      setAccountError(
+        error instanceof Error
+          ? `Your sign-in succeeded, but CareKey could not finish setting up your account: ${error.message}`
+          : "Your sign-in succeeded, but CareKey could not finish setting up your account. Please try again.",
+      );
       setProfile(null);
       setRole(null);
       setMedicalId(null);
@@ -100,6 +108,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     profile,
     role,
     medicalId,
+    accountError,
     refresh: async () => bootstrap(getFirebaseAuth().currentUser),
     signOut: async () => firebaseSignOut(getFirebaseAuth()),
   };
