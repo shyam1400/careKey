@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.security import require_roles
+from app.models.audit import AccessLog
 from app.models.enums import AppRole
 from app.models.profile import Profile
 from app.models.user import User
@@ -56,7 +57,7 @@ def update_user(
     user_id: UUID,
     payload: AdminUserUpdate,
     db: Session = Depends(get_db),
-    _admin: User = Depends(require_roles(AppRole.ADMIN)),
+    admin: User = Depends(require_roles(AppRole.ADMIN)),
 ) -> dict[str, Any]:
     target = db.get(User, user_id)
     if target is None:
@@ -64,6 +65,7 @@ def update_user(
     if target.role == AppRole.ADMIN:
         raise HTTPException(status_code=403, detail="Admin roles can only be changed through the trusted database setup")
 
+    previous_role = target.role.value
     target.role = AppRole(payload.role)
     profile = db.get(Profile, target.id)
     if profile is None:
@@ -79,6 +81,16 @@ def update_user(
             setattr(profile, field, value)
     db.add(target)
     db.add(profile)
+    db.add(
+        AccessLog(
+            provider_name=(admin.email or str(admin.id))[:100],
+            action=f"Admin changed {target.email or target.id} role from {previous_role} to {target.role.value}",
+            categories=[],
+            access_type="administration",
+            verification_result="admin_role_change",
+            success=True,
+        )
+    )
     db.commit()
     db.refresh(target)
     db.refresh(profile)

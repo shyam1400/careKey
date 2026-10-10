@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.security import get_current_user
+from app.models.audit import AccessLog
 from app.models.enums import AppRole
 from app.models.hospital import Hospital
 from app.models.user import User
@@ -45,6 +46,16 @@ def create_hospital(
         raise HTTPException(status_code=403, detail="Insufficient permissions")
     hospital = Hospital(**payload.model_dump())
     db.add(hospital)
+    db.add(
+        AccessLog(
+            provider_name=(user.email or str(user.id))[:100],
+            action=f"Admin added hospital directory entry: {hospital.name}",
+            categories=[],
+            access_type="administration",
+            verification_result="admin_hospital_create",
+            success=True,
+        )
+    )
     db.commit()
     db.refresh(hospital)
     return hospital

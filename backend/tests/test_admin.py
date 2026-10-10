@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.main import app
+from app.models.audit import AccessLog
 from app.models.enums import AppRole
 from app.models.profile import Profile
 from app.models.user import User
@@ -86,6 +87,10 @@ def test_admin_can_provision_doctor_and_profile():
     assert response.json()["full_name"] == "Demo Doctor"
     assert response.json()["specialty"] == "General Practice"
     assert db.profiles[target.id].firebase_uid == target.firebase_uid
+    audit_events = [item for item in db.added if isinstance(item, AccessLog)]
+    assert len(audit_events) == 1
+    assert audit_events[0].access_type == "administration"
+    assert "role from patient to doctor" in audit_events[0].action
 
 
 def test_admin_cannot_change_another_admin_role():
