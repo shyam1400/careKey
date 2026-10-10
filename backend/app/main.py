@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.auth import router as auth_router
 from app.api.audit import router as audit_router
+from app.api.admin import router as admin_router
 from app.api.consents import router as consents_router
 from app.api.emergency import router as emergency_router
 from app.api.health import router as health_router
@@ -41,5 +42,6 @@ app.include_router(patients_router)
 app.include_router(records_router)
 app.include_router(consents_router)
 app.include_router(audit_router)
+app.include_router(admin_router)
 app.include_router(emergency_router)
 app.include_router(hospitals_router)

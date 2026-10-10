@@ -27,6 +27,8 @@ The current local backend `.env` has no Supabase secret key, so upload-token, do
 3. In Cloudflare Workers & Pages, connect this repository and set the production branch to `new` and the root directory to `/`. Use `npm install` as the install command, `npm run build` as the build command, and `npx nitro deploy --prebuilt` as the deploy command. For preview deployments, use `npx wrangler preview` or disable previews. Add the browser variables from the root `.env.example` as build variables, including `VITE_CAREKEY_API_URL` for the public Render API URL. The Firebase web configuration and Supabase publishable key are public client settings; never add private service credentials there.
 4. Add the Cloudflare site's origin to the backend `CORS_ORIGINS`, redeploy the API, then verify sign-in, profile load, consent grant/revoke, emergency access logging, and a document upload/download/delete.
 
+For the one-time trusted first-admin bootstrap and subsequent doctor provisioning, follow [ADMIN_SETUP.md](ADMIN_SETUP.md).
+
 Cloudflare Workers Free has request and CPU limits. Render Free may sleep when idle. Supabase Free may pause inactive projects and has finite database, storage, and egress quotas. When any limit blocks the app, keep the services on their free plans and reduce usage or wait for quota reset; do not upgrade or add billing details.
 
 ## Local verification
