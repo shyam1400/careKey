@@ -25,7 +25,7 @@ export const Route = createFileRoute("/doctor")({
 function DoctorPage() {
   const { user } = useAuth();
   const [openConsent, setOpenConsent] = useState<string | null>(null);
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error } = useQuery({
     queryKey: ["doctor-consents", user?.id],
     enabled: !!user,
     queryFn: async () => {
@@ -38,11 +38,13 @@ function DoctorPage() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">My patients</h1>
+        <div><h1 className="text-2xl font-semibold">My patients</h1><p className="text-sm text-muted-foreground">{user?.hospitalName ? `Doctor at ${user.hospitalName}` : "Your account needs a hospital assignment"}</p></div>
         <Link to="/emergency" className="text-sm text-primary underline">Emergency mode</Link>
       </div>
       {isLoading ? (
         <p className="text-sm text-muted-foreground">Loading…</p>
+      ) : error ? (
+        <div role="alert" className="card-surface p-5 text-sm text-destructive">{error.message}</div>
       ) : !data?.length ? (
         <div className="card-surface p-6 text-sm text-muted-foreground">No patients have shared records with you yet.</div>
       ) : (

@@ -14,5 +14,7 @@ class AuthMeResponse(BaseModel):
     email: str | None
     is_active: bool
     role: AppRole
+    hospital_id: UUID | None = None
+    hospital_name: str | None = None
     created_at: datetime
     updated_at: datetime

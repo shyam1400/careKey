@@ -16,6 +16,7 @@ import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as DoctorRouteImport } from './routes/doctor'
 import { Route as EmergencyRouteImport } from './routes/emergency'
 import { Route as HistoryRouteImport } from './routes/history'
+import { Route as HospitalAccountRouteImport } from './routes/hospital-account'
 import { Route as HospitalsRouteImport } from './routes/hospitals'
 import { Route as ProfileRouteImport } from './routes/profile'
 import { Route as QrRouteImport } from './routes/qr'
@@ -57,6 +58,11 @@ const HistoryRoute = HistoryRouteImport.update({
   path: '/history',
   getParentRoute: () => rootRouteImport,
 } as any)
+const HospitalAccountRoute = HospitalAccountRouteImport.update({
+  id: '/hospital-account',
+  path: '/hospital-account',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const HospitalsRoute = HospitalsRouteImport.update({
   id: '/hospitals',
   path: '/hospitals',
@@ -91,6 +97,7 @@ export interface FileRoutesByFullPath {
   '/doctor': typeof DoctorRoute
   '/emergency': typeof EmergencyRoute
   '/history': typeof HistoryRoute
+  '/hospital-account': typeof HospitalAccountRoute
   '/hospitals': typeof HospitalsRoute
   '/profile': typeof ProfileRoute
   '/qr': typeof QrRoute
@@ -105,6 +112,7 @@ export interface FileRoutesByTo {
   '/doctor': typeof DoctorRoute
   '/emergency': typeof EmergencyRoute
   '/history': typeof HistoryRoute
+  '/hospital-account': typeof HospitalAccountRoute
   '/hospitals': typeof HospitalsRoute
   '/profile': typeof ProfileRoute
   '/qr': typeof QrRoute
@@ -120,6 +128,7 @@ export interface FileRoutesById {
   '/doctor': typeof DoctorRoute
   '/emergency': typeof EmergencyRoute
   '/history': typeof HistoryRoute
+  '/hospital-account': typeof HospitalAccountRoute
   '/hospitals': typeof HospitalsRoute
   '/profile': typeof ProfileRoute
   '/qr': typeof QrRoute
@@ -136,6 +145,7 @@ export interface FileRouteTypes {
     | '/doctor'
     | '/emergency'
     | '/history'
+    | '/hospital-account'
     | '/hospitals'
     | '/profile'
     | '/qr'
@@ -150,6 +160,7 @@ export interface FileRouteTypes {
     | '/doctor'
     | '/emergency'
     | '/history'
+    | '/hospital-account'
     | '/hospitals'
     | '/profile'
     | '/qr'
@@ -164,6 +175,7 @@ export interface FileRouteTypes {
     | '/doctor'
     | '/emergency'
     | '/history'
+    | '/hospital-account'
     | '/hospitals'
     | '/profile'
     | '/qr'
@@ -179,6 +191,7 @@ export interface RootRouteChildren {
   DoctorRoute: typeof DoctorRoute
   EmergencyRoute: typeof EmergencyRoute
   HistoryRoute: typeof HistoryRoute
+  HospitalAccountRoute: typeof HospitalAccountRoute
   HospitalsRoute: typeof HospitalsRoute
   ProfileRoute: typeof ProfileRoute
   QrRoute: typeof QrRoute
@@ -237,6 +250,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof HistoryRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/hospital-account': {
+      id: '/hospital-account'
+      path: '/hospital-account'
+      fullPath: '/hospital-account'
+      preLoaderRoute: typeof HospitalAccountRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/hospitals': {
       id: '/hospitals'
       path: '/hospitals'
@@ -283,6 +303,7 @@ const rootRouteChildren: RootRouteChildren = {
   DoctorRoute: DoctorRoute,
   EmergencyRoute: EmergencyRoute,
   HistoryRoute: HistoryRoute,
+  HospitalAccountRoute: HospitalAccountRoute,
   HospitalsRoute: HospitalsRoute,
   ProfileRoute: ProfileRoute,
   QrRoute: QrRoute,

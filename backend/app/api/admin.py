@@ -10,6 +10,7 @@ from app.core.security import require_roles
 from app.models.audit import AccessLog
 from app.models.enums import AppRole
 from app.models.profile import Profile
+from app.models.hospital import Hospital
 from app.models.user import User
 from app.schemas.admin import AdminUserResponse, AdminUserStatusUpdate, AdminUserUpdate
 
@@ -32,8 +33,11 @@ def list_users(
             Profile.full_name,
             Profile.organization,
             Profile.specialty,
+            User.hospital_id,
+            Hospital.name.label("hospital_name"),
         )
         .outerjoin(Profile, Profile.id == User.id)
+        .outerjoin(Hospital, Hospital.id == User.hospital_id)
         .order_by(User.created_at.desc())
         .limit(limit)
         .offset(offset)
@@ -47,6 +51,8 @@ def list_users(
             "full_name": row.full_name,
             "organization": row.organization,
             "specialty": row.specialty,
+            "hospital_id": row.hospital_id,
+            "hospital_name": row.hospital_name,
         }
         for row in rows
     ]
@@ -65,8 +71,18 @@ def update_user(
     if target.role == AppRole.ADMIN:
         raise HTTPException(status_code=403, detail="Admin roles can only be changed through the trusted database setup")
 
+    requested_role = AppRole(payload.role)
+    selected_hospital_id = payload.hospital_id
+    if requested_role in {AppRole.DOCTOR, AppRole.HOSPITAL_ADMIN}:
+        selected_hospital_id = selected_hospital_id or target.hospital_id
+        if selected_hospital_id is None or db.get(Hospital, selected_hospital_id) is None:
+            raise HTTPException(status_code=422, detail="Assign a hospital to every doctor and hospital administrator")
+    else:
+        selected_hospital_id = None
     previous_role = target.role.value
-    target.role = AppRole(payload.role)
+    target.role = requested_role
+    target.hospital_id = selected_hospital_id
+    assigned_hospital = None
     profile = db.get(Profile, target.id)
     if profile is None:
         profile = Profile(
@@ -77,8 +93,11 @@ def update_user(
         )
         db.add(profile)
     for field, value in payload.model_dump(exclude_unset=True).items():
-        if field != "role":
+        if field not in {"role", "hospital_id"}:
             setattr(profile, field, value)
+    if requested_role in {AppRole.DOCTOR, AppRole.HOSPITAL_ADMIN}:
+        assigned_hospital = db.get(Hospital, selected_hospital_id)
+        profile.organization = assigned_hospital.name
     db.add(target)
     db.add(profile)
     db.add(
@@ -102,6 +121,8 @@ def update_user(
         "full_name": profile.full_name,
         "organization": profile.organization,
         "specialty": profile.specialty,
+        "hospital_id": target.hospital_id,
+        "hospital_name": assigned_hospital.name if assigned_hospital else None,
     }
 
 
@@ -120,6 +141,7 @@ def update_doctor_status(
     target.is_active = payload.is_active
     profile = db.get(Profile, target.id)
     db.add(target)
+    assigned_hospital = db.get(Hospital, target.hospital_id) if target.hospital_id else None
     db.add(
         AccessLog(
             provider_name=(admin.email or str(admin.id))[:100],
@@ -140,4 +162,6 @@ def update_doctor_status(
         "full_name": profile.full_name if profile else None,
         "organization": profile.organization if profile else None,
         "specialty": profile.specialty if profile else None,
+        "hospital_id": target.hospital_id,
+        "hospital_name": assigned_hospital.name if assigned_hospital else None,
     }

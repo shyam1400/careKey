@@ -30,7 +30,9 @@ type AdminUser = {
   id: string;
   email: string | null;
   full_name: string | null;
-  role: "patient" | "doctor" | "admin";
+  role: "patient" | "doctor" | "hospital_admin" | "admin";
+  hospital_id: string | null;
+  hospital_name: string | null;
   is_active: boolean;
   organization: string | null;
   specialty: string | null;
@@ -57,7 +59,7 @@ function AdminPage() {
   const logs = useQuery({
     queryKey: ["admin-logs", user?.id],
     enabled: !!user,
-    queryFn: () => carekeyRequest<Array<{ id: string; action: string; provider_name: string | null; success: boolean; created_at: string }>>("/audit/admin", user!),
+    queryFn: () => carekeyRequest<Array<{ id: string; action: string; provider_name: string | null; hospital_name: string | null; success: boolean; created_at: string }>>("/audit/admin", user!),
   });
   const users = useQuery({
     queryKey: ["admin-users", user?.id],
@@ -70,12 +72,13 @@ function AdminPage() {
     queryFn: () => carekeyRequest<Hospital[]>("/hospitals", user!),
   });
 
-  async function saveUser(id: string, values: { role: "patient" | "doctor"; full_name: string; organization: string; specialty: string }): Promise<boolean> {
+  async function saveUser(id: string, values: { role: "patient" | "doctor" | "hospital_admin"; hospital_id: string | null; full_name: string; organization: string; specialty: string }): Promise<boolean> {
     try {
       await carekeyRequest<AdminUser>(`/admin/users/${id}`, user!, {
         method: "PATCH",
         body: JSON.stringify({
           role: values.role,
+          hospital_id: values.hospital_id,
           full_name: values.full_name.trim() || undefined,
           organization: values.organization.trim() || null,
           specialty: values.specialty.trim() || null,
@@ -170,13 +173,13 @@ function AdminPage() {
       <section className="space-y-3">
         <div>
           <h2 className="text-lg font-semibold">Users</h2>
-          <p className="text-sm text-muted-foreground">A user must sign up and sign in once before they appear here. Only patient and doctor roles can be assigned here.</p>
+          <p className="text-sm text-muted-foreground">A user must sign up and sign in once before they appear here. Assign every doctor and hospital administrator to a hospital.</p>
         </div>
         {users.isLoading ? <p className="text-sm text-muted-foreground">Loading users…</p> : null}
         {users.error ? <p role="alert" className="text-sm text-destructive">Could not load users: {users.error.message}</p> : null}
         <div className="space-y-3">
           {(users.data ?? []).map((account) => (
-            <AdminUserRow key={account.id} account={account} onSave={saveUser} onSetActive={setDoctorActive} />
+            <AdminUserRow key={account.id} account={account} hospitals={hospitals.data ?? []} onSave={saveUser} onSetActive={setDoctorActive} />
           ))}
           {!users.isLoading && !users.error && !users.data?.length ? (
             <div className="card-surface p-4 text-sm text-muted-foreground">No registered users yet.</div>
@@ -228,7 +231,7 @@ function AdminPage() {
             {logs.data.map((log) => (
               <li key={log.id} className="card-surface p-3 text-sm">
                 <p className="font-medium">{log.action}</p>
-                <p className="text-xs text-muted-foreground">{log.provider_name ?? "—"} · {formatDateTime(log.created_at)} · {log.success ? "success" : "failed"}</p>
+                <p className="text-xs text-muted-foreground">{log.provider_name ?? "—"}{log.hospital_name ? ` · ${log.hospital_name}` : ""} · {formatDateTime(log.created_at)} · {log.success ? "success" : "failed"}</p>
               </li>
             ))}
           </ul>
@@ -238,13 +241,15 @@ function AdminPage() {
   );
 }
 
-function AdminUserRow({ account, onSave, onSetActive }: {
+function AdminUserRow({ account, hospitals, onSave, onSetActive }: {
   account: AdminUser;
-  onSave: (id: string, values: { role: "patient" | "doctor"; full_name: string; organization: string; specialty: string }) => Promise<boolean>;
+  hospitals: Hospital[];
+  onSave: (id: string, values: { role: "patient" | "doctor" | "hospital_admin"; hospital_id: string | null; full_name: string; organization: string; specialty: string }) => Promise<boolean>;
   onSetActive: (account: AdminUser, isActive: boolean) => Promise<void>;
 }) {
   const [editing, setEditing] = useState(false);
-  const [role, setRole] = useState<"patient" | "doctor">(account.role === "doctor" ? "doctor" : "patient");
+  const [role, setRole] = useState<"patient" | "doctor" | "hospital_admin">(account.role === "doctor" || account.role === "hospital_admin" ? account.role : "patient");
+  const [hospitalId, setHospitalId] = useState(account.hospital_id ?? "");
   const [fullName, setFullName] = useState(account.full_name ?? "");
   const [organization, setOrganization] = useState(account.organization ?? "");
   const [specialty, setSpecialty] = useState(account.specialty ?? "");
@@ -260,15 +265,16 @@ function AdminUserRow({ account, onSave, onSetActive }: {
     <div className="card-surface grid gap-3 p-4 md:grid-cols-2">
       <div className="md:col-span-2">
         <p className="font-medium">{account.email ?? "No email"}</p>
-        <p className="text-xs text-muted-foreground">Current role: {account.role}{account.is_active ? " · active" : " · deactivated"}</p>
+        <p className="text-xs text-muted-foreground">Current role: {account.role}{account.hospital_name ? ` · ${account.hospital_name}` : ""}{account.is_active ? " · active" : " · deactivated"}</p>
       </div>
       {editing ? <>
         <div className="space-y-1.5"><Label>Name</Label><Input value={fullName} maxLength={100} onChange={(event) => setFullName(event.target.value)} /></div>
-        <div className="space-y-1.5"><Label>Role</Label><select className="h-10 w-full rounded-md border bg-background px-3 text-sm" value={role} onChange={(event) => setRole(event.target.value as "patient" | "doctor")}><option value="patient">Patient</option><option value="doctor">Doctor</option></select></div>
-        <div className="space-y-1.5"><Label>Organization</Label><Input value={organization} maxLength={120} onChange={(event) => setOrganization(event.target.value)} /></div>
+        <div className="space-y-1.5"><Label>Role</Label><select className="h-10 w-full rounded-md border bg-background px-3 text-sm" value={role} onChange={(event) => setRole(event.target.value as "patient" | "doctor" | "hospital_admin")}><option value="patient">Patient</option><option value="doctor">Doctor</option><option value="hospital_admin">Hospital administrator</option></select></div>
+        {role !== "patient" ? <div className="space-y-1.5"><Label>Hospital (required)</Label><select className="h-10 w-full rounded-md border bg-background px-3 text-sm" value={hospitalId} onChange={(event) => setHospitalId(event.target.value)} required><option value="">Choose a hospital</option>{hospitals.map((hospital) => <option key={hospital.id} value={hospital.id}>{hospital.name}</option>)}</select></div> : null}
+        {role === "doctor" ? <div className="space-y-1.5"><Label>Organization</Label><Input value={organization} maxLength={120} onChange={(event) => setOrganization(event.target.value)} /></div> : null}
         <div className="space-y-1.5"><Label>Specialty</Label><Input value={specialty} maxLength={120} onChange={(event) => setSpecialty(event.target.value)} /></div>
         <div className="flex gap-2 md:col-span-2">
-          <Button size="sm" onClick={() => { void onSave(account.id, { role, full_name: fullName, organization, specialty }).then((saved) => { if (saved) setEditing(false); }); }}>Save changes</Button>
+        <Button size="sm" onClick={() => { void onSave(account.id, { role, hospital_id: role === "patient" ? null : hospitalId || null, full_name: fullName, organization, specialty }).then((saved) => { if (saved) setEditing(false); }); }}>Save changes</Button>
           <Button size="sm" variant="outline" onClick={() => setEditing(false)}>Cancel</Button>
         </div>
       </> : <div className="flex flex-wrap gap-2 md:col-span-2">

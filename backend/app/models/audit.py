@@ -20,6 +20,10 @@ class AccessLog(Base):
         PGUUID(as_uuid=True), ForeignKey("profiles.id", ondelete="SET NULL"), nullable=True
     )
     provider_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    hospital_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("hospitals.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    hospital_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     action: Mapped[str] = mapped_column(Text, nullable=False)
     categories: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, default=list)
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)

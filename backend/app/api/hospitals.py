@@ -8,6 +8,7 @@ from app.core.security import get_current_user
 from app.models.audit import AccessLog
 from app.models.enums import AppRole
 from app.models.hospital import Hospital
+from app.models.hospital import HospitalProcedure
 from app.models.user import User
 from app.schemas.hospital import HospitalCreate, HospitalResponse, HospitalUpdate
 
@@ -110,6 +111,10 @@ def delete_hospital(
     hospital = db.get(Hospital, hospital_id)
     if hospital is None:
         raise HTTPException(status_code=404, detail="Hospital not found")
+    attached_users = db.scalar(select(User.id).where(User.hospital_id == hospital.id).limit(1))
+    existing_procedures = db.scalar(select(HospitalProcedure.id).where(HospitalProcedure.hospital_id == hospital.id).limit(1))
+    if attached_users or existing_procedures:
+        raise HTTPException(status_code=409, detail="Reassign hospital accounts and retain procedure records before deleting this hospital")
     name = hospital.name
     db.add(
         AccessLog(

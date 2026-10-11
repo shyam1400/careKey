@@ -8,6 +8,7 @@ from app.api.consents import router as consents_router
 from app.api.emergency import router as emergency_router
 from app.api.health import router as health_router
 from app.api.hospitals import router as hospitals_router
+from app.api.hospital_account import router as hospital_account_router
 from app.api.patients import router as patients_router
 from app.api.passkeys import router as passkeys_router
 from app.api.roles import router as roles_router
@@ -47,3 +48,4 @@ app.include_router(audit_router)
 app.include_router(admin_router)
 app.include_router(emergency_router)
 app.include_router(hospitals_router)
+app.include_router(hospital_account_router)

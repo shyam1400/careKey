@@ -11,7 +11,7 @@ export class CareKeyApiError extends Error {
   }
 }
 
-export type AppRole = "patient" | "doctor" | "admin";
+export type AppRole = "patient" | "doctor" | "hospital_admin" | "admin";
 
 export type AppUser = {
   id: string;
@@ -19,6 +19,8 @@ export type AppUser = {
   email: string | null;
   is_active: boolean;
   role: AppRole;
+  hospital_id: string | null;
+  hospital_name: string | null;
   created_at: string;
   updated_at: string;
 };

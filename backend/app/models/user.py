@@ -1,12 +1,16 @@
 from datetime import datetime
+from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
-from sqlalchemy import Boolean, DateTime, Index, String, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, func
 from sqlalchemy.dialects.postgresql import ENUM, UUID as PGUUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
 from app.models.enums import AppRole
+
+if TYPE_CHECKING:
+    from app.models.hospital import Hospital
 
 
 class User(Base):
@@ -27,6 +31,14 @@ class User(Base):
         default=True,
         server_default="true",
     )
+    hospital_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("hospitals.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    hospital: Mapped["Hospital | None"] = relationship(lazy="joined")
+
+    @property
+    def hospital_name(self) -> str | None:
+        return self.hospital.name if self.hospital is not None else None
     last_passkey_registration_auth_time: Mapped[int | None] = mapped_column(nullable=True)
     role: Mapped[AppRole] = mapped_column(
         ENUM(

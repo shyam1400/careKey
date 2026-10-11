@@ -4,6 +4,7 @@ from enum import StrEnum
 class AppRole(StrEnum):
     PATIENT = "patient"
     DOCTOR = "doctor"
+    HOSPITAL_ADMIN = "hospital_admin"
     ADMIN = "admin"
 
 

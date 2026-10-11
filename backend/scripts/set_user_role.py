@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+from uuid import UUID
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -21,6 +22,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_session_factory
 from app.models.enums import AppRole
 from app.models.user import User
+from app.models.hospital import Hospital
 
 
 def main() -> None:
@@ -30,8 +32,9 @@ def main() -> None:
         "--role",
         required=True,
         choices=[role.value for role in AppRole],
-        help="New role (patient, doctor, or admin)",
+        help="New role (patient, doctor, hospital_admin, or admin)",
     )
+    parser.add_argument("--hospital-id", help="Required when assigning doctor or hospital_admin")
     args = parser.parse_args()
     role = AppRole(args.role)
 
@@ -41,8 +44,20 @@ def main() -> None:
         if user is None:
             raise SystemExit(f"No application user with email {args.email!r}. Sign in once first.")
         user.role = role
+        if role in {AppRole.DOCTOR, AppRole.HOSPITAL_ADMIN}:
+            if not args.hospital_id:
+                raise SystemExit("--hospital-id is required for doctor and hospital_admin roles")
+            try:
+                hospital_id = UUID(args.hospital_id)
+            except ValueError as exc:
+                raise SystemExit("--hospital-id must be a valid hospital UUID") from exc
+            if session.get(Hospital, hospital_id) is None:
+                raise SystemExit("No hospital found with that ID")
+            user.hospital_id = hospital_id
+        else:
+            user.hospital_id = None
         session.commit()
-        print(f"Updated {user.email} ({user.firebase_uid}) to role={user.role.value}")
+        print(f"Updated {user.email} ({user.firebase_uid}) to role={user.role.value}, hospital_id={user.hospital_id}")
     finally:
         session.close()
 

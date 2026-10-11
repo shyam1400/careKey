@@ -7,6 +7,7 @@ from app.core.config import get_settings
 from app.core.security import get_current_user
 from app.models.audit import AccessLog
 from app.models.enums import AppRole
+from app.models.hospital import Hospital
 from app.models.patient import Patient
 from app.models.profile import Profile
 from app.models.user import User
@@ -62,12 +63,15 @@ def _audit(
     verification_result: str = "firebase_id_token",
 ) -> None:
     profile = _provider_profile(db, user)
+    hospital = db.get(Hospital, user.hospital_id) if user.hospital_id else None
     db.add(
         AccessLog(
             patient_id=patient.id if patient else None,
             medical_id=medical_id,
             provider_id=profile.id,
             provider_name=profile.full_name,
+            hospital_id=hospital.id if hospital else None,
+            hospital_name=hospital.name if hospital else None,
             action="Emergency profile access",
             categories=["emergency_profile", "allergies", "critical_conditions", "active_medications"],
             reason=reason,
@@ -88,9 +92,9 @@ def read_emergency_profile(
     user: User = Depends(get_current_user),
 ) -> EmergencyProfileResponse:
     reason = payload.reason.strip()
-    if user.role != AppRole.DOCTOR:
+    if user.role != AppRole.DOCTOR or user.hospital_id is None:
         _audit(db, user, reason, medical_id, patient=None, success=False)
-        raise HTTPException(status_code=403, detail="Insufficient permissions")
+        raise HTTPException(status_code=403, detail="An active hospital assignment is required for doctor access")
 
     try:
         verify_emergency_assertion(

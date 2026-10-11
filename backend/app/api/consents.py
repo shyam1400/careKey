@@ -10,6 +10,7 @@ from app.core.security import get_current_user
 from app.models.consent import Consent
 from app.models.audit import AccessLog
 from app.models.enums import AppRole, ConsentStatus
+from app.models.hospital import Hospital
 from app.models.patient import Patient
 from app.models.profile import Profile
 from app.models.records import Allergy, Condition, Document, Medication, Surgery
@@ -49,13 +50,14 @@ def grant_consent(
     if patient is None:
         raise HTTPException(status_code=404, detail="Patient profile not found")
     provider = db.scalar(select(User).where(User.id == payload.provider_id))
-    if provider is None or provider.role != AppRole.DOCTOR or not provider.is_active:
+    if provider is None or provider.role != AppRole.DOCTOR or not provider.is_active or provider.hospital_id is None:
         raise HTTPException(status_code=404, detail="Active doctor not found")
     now = datetime.now(timezone.utc)
     if payload.expires_at is not None and payload.expires_at <= now:
         raise HTTPException(status_code=422, detail="Consent expiration must be in the future")
 
     provider_profile = _ensure_provider_profile(db, provider)
+    provider_hospital = db.get(Hospital, provider.hospital_id)
     consent = Consent(
         patient_id=patient.id,
         provider_id=provider_profile.id,
@@ -71,6 +73,8 @@ def grant_consent(
         patient_id=patient.id,
         provider_id=provider_profile.id,
         provider_name=provider_profile.full_name,
+        hospital_id=provider_hospital.id if provider_hospital else None,
+        hospital_name=provider_hospital.name if provider_hospital else None,
         action=f"Patient granted access to {provider_profile.full_name}",
         categories=consent.permissions,
         reason=consent.purpose,
@@ -90,6 +94,8 @@ def list_consents(
     if user.role == AppRole.PATIENT:
         query = select(Consent).where(Consent.patient_id == user.id)
     elif user.role == AppRole.DOCTOR:
+        if user.hospital_id is None:
+            raise HTTPException(status_code=403, detail="Your doctor account must be assigned to a hospital")
         query = select(Consent).where(Consent.provider_id == user.id)
     else:
         raise HTTPException(status_code=403, detail="Insufficient permissions")
@@ -115,8 +121,8 @@ def read_consented_records(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> dict:
-    if user.role != AppRole.DOCTOR:
-        raise HTTPException(status_code=403, detail="Only doctors can view consented records")
+    if user.role != AppRole.DOCTOR or user.hospital_id is None:
+        raise HTTPException(status_code=403, detail="Only hospital-assigned doctors can view consented records")
     consent = db.scalar(select(Consent).where(Consent.id == consent_id))
     if consent is None or consent.provider_id != user.id:
         raise HTTPException(status_code=404, detail="Consent not found")
@@ -185,10 +191,13 @@ def read_consented_records(
                 })
 
     provider_profile = db.scalar(select(Profile).where(Profile.id == user.id))
+    provider_hospital = db.get(Hospital, user.hospital_id)
     db.add(AccessLog(
         patient_id=patient.id,
         provider_id=user.id,
         provider_name=provider_profile.full_name if provider_profile else (user.email or "Doctor")[:100],
+        hospital_id=provider_hospital.id if provider_hospital else None,
+        hospital_name=provider_hospital.name if provider_hospital else None,
         action="Consent-based medical record access",
         categories=sorted(permissions),
         reason=consent.purpose,
@@ -218,10 +227,14 @@ def revoke_consent(
     consent.revoked_at = datetime.now(timezone.utc)
     db.add(consent)
     provider_profile = db.scalar(select(Profile).where(Profile.id == consent.provider_id))
+    provider_user = db.get(User, consent.provider_id)
+    provider_hospital = db.get(Hospital, provider_user.hospital_id) if provider_user and provider_user.hospital_id else None
     db.add(AccessLog(
         patient_id=consent.patient_id,
         provider_id=consent.provider_id,
         provider_name=provider_profile.full_name if provider_profile else "Healthcare provider",
+        hospital_id=provider_hospital.id if provider_hospital else None,
+        hospital_name=provider_hospital.name if provider_hospital else None,
         action="Patient revoked shared access",
         categories=consent.permissions,
         reason=consent.purpose,

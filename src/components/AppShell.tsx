@@ -27,10 +27,15 @@ const adminNav = [
   { to: "/hospitals", label: "Hospitals" },
 ] as const;
 
+const hospitalAdminNav = [
+  { to: "/hospital-account", label: "Hospital dashboard" },
+  { to: "/hospitals", label: "Find hospitals" },
+] as const;
+
 export function AppShell({ children }: { children: ReactNode }) {
   const { profile, role, signOut } = useAuth();
   const navigate = useNavigate();
-  const nav = role === "doctor" ? doctorNav : role === "admin" ? adminNav : patientNav;
+  const nav = role === "doctor" ? doctorNav : role === "admin" ? adminNav : role === "hospital_admin" ? hospitalAdminNav : patientNav;
 
   return (
     <div className="min-h-screen bg-background">

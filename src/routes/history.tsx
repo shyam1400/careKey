@@ -36,7 +36,7 @@ function HistoryPage() {
     enabled: !!user,
     queryFn: async () => {
       return carekeyRequest<Array<{
-        id: string; provider_name: string | null; action: string; categories: string[];
+        id: string; provider_name: string | null; hospital_name: string | null; action: string; categories: string[];
         reason: string | null; access_type: string; verification_result: string | null;
         success: boolean; created_at: string;
       }>>("/audit/me", user!);
@@ -59,6 +59,7 @@ function HistoryPage() {
             <div key={log.id} className="p-5">
               <div className="flex flex-wrap items-center gap-2">
                 <p className="font-semibold">{log.provider_name ?? "Unknown provider"}</p>
+                {log.hospital_name ? <Badge variant="outline">{log.hospital_name}</Badge> : null}
                 <Badge variant={log.access_type === "emergency" ? "destructive" : "secondary"}>
                   {log.access_type}
                 </Badge>
