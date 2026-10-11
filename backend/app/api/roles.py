@@ -41,6 +41,11 @@ def hospital_admin_access(user: User = Depends(require_roles(AppRole.HOSPITAL_AD
     return user
 
 
+@router.get("/hospital", response_model=AuthMeResponse)
+def hospital_access(user: User = Depends(require_roles(AppRole.HOSPITAL))) -> User:
+    return user
+
+
 @router.get("/doctors")
 def list_doctors(
     _user: User = Depends(get_current_user),

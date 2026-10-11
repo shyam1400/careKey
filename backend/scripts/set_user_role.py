@@ -32,9 +32,9 @@ def main() -> None:
         "--role",
         required=True,
         choices=[role.value for role in AppRole],
-        help="New role (patient, doctor, hospital_admin, or admin)",
+        help="New role (patient, doctor, hospital, hospital_admin, or admin)",
     )
-    parser.add_argument("--hospital-id", help="Required when assigning doctor or hospital_admin")
+    parser.add_argument("--hospital-id", help="Required when assigning doctor or a hospital account")
     args = parser.parse_args()
     role = AppRole(args.role)
 
@@ -44,9 +44,9 @@ def main() -> None:
         if user is None:
             raise SystemExit(f"No application user with email {args.email!r}. Sign in once first.")
         user.role = role
-        if role in {AppRole.DOCTOR, AppRole.HOSPITAL_ADMIN}:
+        if role in {AppRole.DOCTOR, AppRole.HOSPITAL, AppRole.HOSPITAL_ADMIN}:
             if not args.hospital_id:
-                raise SystemExit("--hospital-id is required for doctor and hospital_admin roles")
+                raise SystemExit("--hospital-id is required for doctor and hospital roles")
             try:
                 hospital_id = UUID(args.hospital_id)
             except ValueError as exc:

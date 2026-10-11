@@ -38,6 +38,7 @@ const schema = z.object({
 const roleHome: Record<Role, string> = {
   patient: "/dashboard",
   doctor: "/doctor",
+  hospital: "/hospital-account",
   hospital_admin: "/hospital-account",
   admin: "/admin",
 };

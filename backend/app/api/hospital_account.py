@@ -25,8 +25,8 @@ router = APIRouter(prefix="/hospital-account", tags=["hospital account"])
 
 
 def _hospital_for(user: User, db: Session) -> Hospital:
-    if user.role != AppRole.HOSPITAL_ADMIN or user.hospital_id is None:
-        raise HTTPException(status_code=403, detail="Hospital administrator access is required")
+    if user.role not in {AppRole.HOSPITAL, AppRole.HOSPITAL_ADMIN} or user.hospital_id is None:
+        raise HTTPException(status_code=403, detail="Hospital account access is required")
     hospital = db.get(Hospital, user.hospital_id)
     if hospital is None:
         raise HTTPException(status_code=403, detail="This account is not assigned to an active hospital")

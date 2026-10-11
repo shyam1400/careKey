@@ -30,7 +30,7 @@ type AdminUser = {
   id: string;
   email: string | null;
   full_name: string | null;
-  role: "patient" | "doctor" | "hospital_admin" | "admin";
+  role: "patient" | "doctor" | "hospital" | "hospital_admin" | "admin";
   hospital_id: string | null;
   hospital_name: string | null;
   is_active: boolean;
@@ -72,7 +72,7 @@ function AdminPage() {
     queryFn: () => carekeyRequest<Hospital[]>("/hospitals", user!),
   });
 
-  async function saveUser(id: string, values: { role: "patient" | "doctor" | "hospital_admin"; hospital_id: string | null; full_name: string; organization: string; specialty: string }): Promise<boolean> {
+  async function saveUser(id: string, values: { role: "patient" | "doctor" | "hospital" | "hospital_admin"; hospital_id: string | null; full_name: string; organization: string; specialty: string }): Promise<boolean> {
     try {
       await carekeyRequest<AdminUser>(`/admin/users/${id}`, user!, {
         method: "PATCH",
@@ -244,11 +244,11 @@ function AdminPage() {
 function AdminUserRow({ account, hospitals, onSave, onSetActive }: {
   account: AdminUser;
   hospitals: Hospital[];
-  onSave: (id: string, values: { role: "patient" | "doctor" | "hospital_admin"; hospital_id: string | null; full_name: string; organization: string; specialty: string }) => Promise<boolean>;
+  onSave: (id: string, values: { role: "patient" | "doctor" | "hospital" | "hospital_admin"; hospital_id: string | null; full_name: string; organization: string; specialty: string }) => Promise<boolean>;
   onSetActive: (account: AdminUser, isActive: boolean) => Promise<void>;
 }) {
   const [editing, setEditing] = useState(false);
-  const [role, setRole] = useState<"patient" | "doctor" | "hospital_admin">(account.role === "doctor" || account.role === "hospital_admin" ? account.role : "patient");
+  const [role, setRole] = useState<"patient" | "doctor" | "hospital" | "hospital_admin">(account.role === "doctor" || account.role === "hospital" || account.role === "hospital_admin" ? account.role : "patient");
   const [hospitalId, setHospitalId] = useState(account.hospital_id ?? "");
   const [fullName, setFullName] = useState(account.full_name ?? "");
   const [organization, setOrganization] = useState(account.organization ?? "");
@@ -269,7 +269,7 @@ function AdminUserRow({ account, hospitals, onSave, onSetActive }: {
       </div>
       {editing ? <>
         <div className="space-y-1.5"><Label>Name</Label><Input value={fullName} maxLength={100} onChange={(event) => setFullName(event.target.value)} /></div>
-        <div className="space-y-1.5"><Label>Role</Label><select className="h-10 w-full rounded-md border bg-background px-3 text-sm" value={role} onChange={(event) => setRole(event.target.value as "patient" | "doctor" | "hospital_admin")}><option value="patient">Patient</option><option value="doctor">Doctor</option><option value="hospital_admin">Hospital administrator</option></select></div>
+        <div className="space-y-1.5"><Label>Role</Label><select className="h-10 w-full rounded-md border bg-background px-3 text-sm" value={role} onChange={(event) => setRole(event.target.value as "patient" | "doctor" | "hospital" | "hospital_admin")}><option value="patient">Patient</option><option value="doctor">Doctor</option><option value="hospital">Hospital account</option><option value="hospital_admin">Hospital administrator (legacy)</option></select></div>
         {role !== "patient" ? <div className="space-y-1.5"><Label>Hospital (required)</Label><select className="h-10 w-full rounded-md border bg-background px-3 text-sm" value={hospitalId} onChange={(event) => setHospitalId(event.target.value)} required><option value="">Choose a hospital</option>{hospitals.map((hospital) => <option key={hospital.id} value={hospital.id}>{hospital.name}</option>)}</select></div> : null}
         {role === "doctor" ? <div className="space-y-1.5"><Label>Organization</Label><Input value={organization} maxLength={120} onChange={(event) => setOrganization(event.target.value)} /></div> : null}
         <div className="space-y-1.5"><Label>Specialty</Label><Input value={specialty} maxLength={120} onChange={(event) => setSpecialty(event.target.value)} /></div>

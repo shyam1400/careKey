@@ -13,7 +13,7 @@ import { Label } from "@/components/ui/label";
 
 export const Route = createFileRoute("/hospital-account")({
   head: () => ({ meta: [{ title: "Hospital dashboard — CareKey" }] }),
-  component: () => <RequireRole roles={["hospital_admin"]}><HospitalAccountPage /></RequireRole>,
+  component: () => <RequireRole roles={["hospital", "hospital_admin"]}><HospitalAccountPage /></RequireRole>,
 });
 
 type Doctor = { id: string; email: string | null; full_name: string; specialty: string | null; is_active: boolean };

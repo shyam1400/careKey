@@ -73,10 +73,10 @@ def update_user(
 
     requested_role = AppRole(payload.role)
     selected_hospital_id = payload.hospital_id
-    if requested_role in {AppRole.DOCTOR, AppRole.HOSPITAL_ADMIN}:
+    if requested_role in {AppRole.DOCTOR, AppRole.HOSPITAL, AppRole.HOSPITAL_ADMIN}:
         selected_hospital_id = selected_hospital_id or target.hospital_id
         if selected_hospital_id is None or db.get(Hospital, selected_hospital_id) is None:
-            raise HTTPException(status_code=422, detail="Assign a hospital to every doctor and hospital administrator")
+            raise HTTPException(status_code=422, detail="Assign a hospital to every doctor and hospital account")
     else:
         selected_hospital_id = None
     previous_role = target.role.value
@@ -95,7 +95,7 @@ def update_user(
     for field, value in payload.model_dump(exclude_unset=True).items():
         if field not in {"role", "hospital_id"}:
             setattr(profile, field, value)
-    if requested_role in {AppRole.DOCTOR, AppRole.HOSPITAL_ADMIN}:
+    if requested_role in {AppRole.DOCTOR, AppRole.HOSPITAL, AppRole.HOSPITAL_ADMIN}:
         assigned_hospital = db.get(Hospital, selected_hospital_id)
         profile.organization = assigned_hospital.name
     db.add(target)
