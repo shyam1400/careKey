@@ -3,7 +3,6 @@
 import logging
 import re
 from datetime import datetime, timezone
-from html import escape
 
 import httpx
 
@@ -20,7 +19,7 @@ def send_emergency_contact_alert(
     organization: str | None,
     accessed_at: str,
 ) -> None:
-    """Send SMS and voice independently; never raise into the emergency-access flow."""
+    """Place a trial-compatible voice alert; never interrupt emergency access."""
     settings = get_settings()
     if not settings.twilio_configured:
         logger.warning(
@@ -29,45 +28,25 @@ def send_emergency_contact_alert(
         )
         return
 
-    place = organization.strip() if organization and organization.strip() else "an organization not listed in CareKey"
-    text = (
-        f"CareKey alert: {patient_name}'s emergency profile was accessed by {doctor_name} at {place} "
-        f"on {accessed_at}. This is an access notification; no medical details are included."
-    )
-    voice = escape(text)
     base_url = f"https://api.twilio.com/2010-04-01/Accounts/{settings.twilio_account_sid}"
     auth = (settings.twilio_account_sid, settings.twilio_auth_token)
     try:
         with httpx.Client(timeout=8.0, auth=auth) as client:
             response = client.post(
-                f"{base_url}/Messages.json",
-                data={"To": phone, "From": settings.twilio_from_number, "Body": text},
-            )
-            response.raise_for_status()
-    except httpx.HTTPStatusError as exc:
-        logger.warning(
-            "Emergency contact SMS rejected by Twilio (HTTP %s, error code %s): %s",
-            exc.response.status_code,
-            _twilio_error_code(exc.response),
-            _twilio_error_message(exc.response, (phone, settings.twilio_from_number or "", text)),
-        )
-    except Exception as exc:
-        logger.warning("Emergency contact SMS request failed (%s)", type(exc).__name__)
-
-    twiml = f"<Response><Say>{voice}</Say></Response>"
-    try:
-        with httpx.Client(timeout=8.0, auth=auth) as client:
-            response = client.post(
                 f"{base_url}/Calls.json",
-                data={"To": phone, "From": settings.twilio_from_number, "Twiml": twiml},
+                data={
+                    "To": phone,
+                    "Url": "https://webhooks.twilio.com/v1/Voice/Template/voice_text_to_speech",
+                },
             )
             response.raise_for_status()
+            logger.info("Emergency contact trial voice call accepted by Twilio")
     except httpx.HTTPStatusError as exc:
         logger.warning(
             "Emergency contact voice call rejected by Twilio (HTTP %s, error code %s): %s",
             exc.response.status_code,
             _twilio_error_code(exc.response),
-            _twilio_error_message(exc.response, (phone, settings.twilio_from_number or "", text)),
+            _twilio_error_message(exc.response, (phone, settings.twilio_from_number or "")),
         )
     except Exception as exc:
         logger.warning("Emergency contact voice request failed (%s)", type(exc).__name__)
