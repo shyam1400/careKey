@@ -35,7 +35,6 @@ def send_emergency_contact_alert(
                 data={
                     "To": phone,
                     "Url": f"{settings.render_external_url.rstrip('/')}/emergency/twilio-voice-message",
-                    "Method": "POST",
                 },
             )
             response.raise_for_status()
