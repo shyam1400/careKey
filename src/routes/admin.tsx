@@ -52,6 +52,13 @@ type Hospital = {
 };
 
 type HospitalFields = Omit<Hospital, "id">;
+type HospitalAccountPayload = {
+  hospital_id?: string;
+  hospital?: HospitalFields;
+  full_name: string;
+  email: string;
+  password: string;
+};
 
 function AdminPage() {
   const { user } = useAuth();
@@ -115,7 +122,7 @@ function AdminPage() {
     if (!user) return;
     const formElement = event.currentTarget;
     const form = new FormData(formElement);
-    const payload = {
+    const hospital = {
       name: String(form.get("name") || "").trim(),
       latitude: Number(form.get("latitude")),
       longitude: Number(form.get("longitude")),
@@ -127,13 +134,32 @@ function AdminPage() {
       open_24h: form.get("open_24h") === "on",
     };
     try {
-      await carekeyRequest("/hospitals", user, { method: "POST", body: JSON.stringify(payload) });
-      toast.success("Hospital added to the directory");
-      formElement.reset();
-      await qc.invalidateQueries({ queryKey: ["admin-hospitals"] });
-      await qc.invalidateQueries({ queryKey: ["hospitals"] });
+      const created = await createHospitalAccount({
+        hospital,
+        full_name: String(form.get("account_name") || "").trim(),
+        email: String(form.get("account_email") || "").trim(),
+        password: String(form.get("account_password") || ""),
+      });
+      if (created) formElement.reset();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Could not add hospital");
+      toast.error(error instanceof Error ? error.message : "Could not create hospital account");
+    }
+  }
+
+  async function createHospitalAccount(payload: HospitalAccountPayload): Promise<boolean> {
+    if (!user) return false;
+    try {
+      await carekeyRequest("/admin/hospital-accounts", user, { method: "POST", body: JSON.stringify(payload) });
+      toast.success("Hospital account created. The hospital can sign in with these credentials.");
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["admin-hospitals"] }),
+        qc.invalidateQueries({ queryKey: ["hospitals"] }),
+        qc.invalidateQueries({ queryKey: ["admin-users"] }),
+      ]);
+      return true;
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not create hospital account");
+      return false;
     }
   }
 
@@ -167,13 +193,13 @@ function AdminPage() {
     <div className="space-y-8">
       <header>
         <h1 className="text-2xl font-semibold">Admin</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Manage demo accounts and hospital directory entries. Use synthetic data only.</p>
+        <p className="mt-1 text-sm text-muted-foreground">Manage demo accounts, hospital logins and the hospital directory. Use synthetic data only.</p>
       </header>
 
       <section className="space-y-3">
         <div>
           <h2 className="text-lg font-semibold">Users</h2>
-          <p className="text-sm text-muted-foreground">A user must sign up and sign in once before they appear here. Assign every doctor and hospital administrator to a hospital.</p>
+          <p className="text-sm text-muted-foreground">Assign doctors to a hospital here. Create hospital logins directly from the directory below.</p>
         </div>
         {users.isLoading ? <p className="text-sm text-muted-foreground">Loading users…</p> : null}
         {users.error ? <p role="alert" className="text-sm text-destructive">Could not load users: {users.error.message}</p> : null}
@@ -206,13 +232,22 @@ function AdminPage() {
             <label className="flex items-center gap-2"><input type="checkbox" name="ambulance" defaultChecked />Ambulance</label>
             <label className="flex items-center gap-2"><input type="checkbox" name="open_24h" defaultChecked />Open 24 hours</label>
           </div>
-          <Button type="submit">Add hospital</Button>
+          <div className="border-t pt-4">
+            <h3 className="font-medium">Hospital sign-in</h3>
+            <p className="mb-3 text-sm text-muted-foreground">Create the hospital directory entry and its login together.</p>
+            <div className="space-y-3">
+              <div className="space-y-1.5"><Label htmlFor="hospital-account-name">Account contact name</Label><Input id="hospital-account-name" name="account_name" required maxLength={100} /></div>
+              <div className="space-y-1.5"><Label htmlFor="hospital-account-email">Sign-in email</Label><Input id="hospital-account-email" name="account_email" type="email" required maxLength={255} /></div>
+              <div className="space-y-1.5"><Label htmlFor="hospital-account-password">Initial password</Label><Input id="hospital-account-password" name="account_password" type="password" required minLength={6} maxLength={128} autoComplete="new-password" /></div>
+            </div>
+          </div>
+          <Button type="submit">Create hospital and account</Button>
         </form>
         <div className="space-y-3">
           <h2 className="text-lg font-semibold">Hospital directory ({hospitals.data?.length ?? 0})</h2>
           {hospitals.error ? <p role="alert" className="text-sm text-destructive">Could not load hospitals: {hospitals.error.message}</p> : null}
           {(hospitals.data ?? []).map((hospital) => (
-            <HospitalRow key={hospital.id} hospital={hospital} onSave={updateHospital} onDelete={deleteHospital} />
+            <HospitalRow key={hospital.id} hospital={hospital} account={users.data?.find((candidate) => candidate.hospital_id === hospital.id && (candidate.role === "hospital" || candidate.role === "hospital_admin")) ?? null} onSave={updateHospital} onDelete={deleteHospital} onCreateAccount={createHospitalAccount} />
           ))}
         </div>
       </section>
@@ -285,12 +320,15 @@ function AdminUserRow({ account, hospitals, onSave, onSetActive }: {
   );
 }
 
-function HospitalRow({ hospital, onSave, onDelete }: {
+function HospitalRow({ hospital, account, onSave, onDelete, onCreateAccount }: {
   hospital: Hospital;
+  account: AdminUser | null;
   onSave: (id: string, values: HospitalFields) => Promise<boolean>;
   onDelete: (hospital: Hospital) => Promise<void>;
+  onCreateAccount: (payload: HospitalAccountPayload) => Promise<boolean>;
 }) {
   const [editing, setEditing] = useState(false);
+  const [creatingAccount, setCreatingAccount] = useState(false);
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
@@ -325,9 +363,21 @@ function HospitalRow({ hospital, onSave, onDelete }: {
       <div className="flex gap-2"><Button size="sm" type="submit">Save changes</Button><Button size="sm" type="button" variant="outline" onClick={() => setEditing(false)}>Cancel</Button></div>
     </form>
   ) : (
-    <div className="card-surface flex flex-wrap items-start justify-between gap-3 p-4">
-      <div><p className="font-medium">{hospital.name}</p><p className="text-sm text-muted-foreground">{hospital.address || `${hospital.latitude}, ${hospital.longitude}`}</p></div>
-      <div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => setEditing(true)}>Edit</Button><Button size="sm" variant="destructive" onClick={() => void onDelete(hospital)}>Delete</Button></div>
+    <div className="card-surface space-y-3 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div><p className="font-medium">{hospital.name}</p><p className="text-sm text-muted-foreground">{hospital.address || `${hospital.latitude}, ${hospital.longitude}`}</p></div>
+        <div className="flex flex-wrap items-center gap-2">{account ? <span className="text-xs text-muted-foreground">Account: {account.email ?? account.full_name}</span> : <Button size="sm" variant="outline" onClick={() => setCreatingAccount((open) => !open)}>Create hospital account</Button>}<Button size="sm" variant="outline" onClick={() => setEditing(true)}>Edit</Button><Button size="sm" variant="destructive" onClick={() => void onDelete(hospital)}>Delete</Button></div>
+      </div>
+      {creatingAccount ? <form className="grid gap-3 border-t pt-3 sm:grid-cols-2" onSubmit={(event) => {
+        event.preventDefault();
+        const data = new FormData(event.currentTarget);
+        void onCreateAccount({ hospital_id: hospital.id, full_name: String(data.get("full_name") || "").trim(), email: String(data.get("email") || "").trim(), password: String(data.get("password") || "") }).then((created) => { if (created) setCreatingAccount(false); });
+      }}>
+        <div className="space-y-1.5"><Label>Account contact name</Label><Input name="full_name" required maxLength={100} /></div>
+        <div className="space-y-1.5"><Label>Sign-in email</Label><Input name="email" type="email" required maxLength={255} /></div>
+        <div className="space-y-1.5 sm:col-span-2"><Label>Initial password</Label><Input name="password" type="password" required minLength={6} maxLength={128} autoComplete="new-password" /></div>
+        <div className="flex gap-2 sm:col-span-2"><Button size="sm" type="submit">Create hospital login</Button><Button size="sm" type="button" variant="outline" onClick={() => setCreatingAccount(false)}>Cancel</Button></div>
+      </form> : null}
     </div>
   );
 }

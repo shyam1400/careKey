@@ -1,20 +1,129 @@
 from typing import Any
+from uuid import uuid4
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from firebase_admin import auth
+from firebase_admin.exceptions import FirebaseError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.firebase import FirebaseNotConfiguredError, get_firebase_app
 from app.core.security import require_roles
 from app.models.audit import AccessLog
 from app.models.enums import AppRole
 from app.models.profile import Profile
 from app.models.hospital import Hospital
 from app.models.user import User
-from app.schemas.admin import AdminUserResponse, AdminUserStatusUpdate, AdminUserUpdate
+from app.schemas.admin import (
+    AdminUserResponse,
+    AdminUserStatusUpdate,
+    AdminUserUpdate,
+    HospitalAccountCreate,
+    HospitalAccountCreated,
+)
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+
+@router.post("/hospital-accounts", response_model=HospitalAccountCreated, status_code=201)
+def create_hospital_account(
+    payload: HospitalAccountCreate,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_roles(AppRole.ADMIN)),
+) -> dict[str, Any]:
+    """Create a Firebase login and link it directly to an existing or new hospital."""
+    if (payload.hospital_id is None) == (payload.hospital is None):
+        raise HTTPException(status_code=422, detail="Choose an existing hospital or provide new hospital details")
+
+    if payload.hospital_id is not None:
+        hospital = db.get(Hospital, payload.hospital_id)
+        if hospital is None:
+            raise HTTPException(status_code=404, detail="Hospital not found")
+        existing_account = db.scalar(
+            select(User.id).where(
+                User.hospital_id == hospital.id,
+                User.role.in_([AppRole.HOSPITAL, AppRole.HOSPITAL_ADMIN]),
+            ).limit(1)
+        )
+        if existing_account:
+            raise HTTPException(status_code=409, detail="This hospital already has a sign-in account")
+    else:
+        hospital = Hospital(**payload.hospital.model_dump())
+        db.add(hospital)
+        db.flush()
+
+    email = payload.email.strip().lower()
+    try:
+        firebase_user = auth.create_user(
+            email=email,
+            password=payload.password,
+            display_name=payload.full_name.strip(),
+            app=get_firebase_app(),
+        )
+    except auth.EmailAlreadyExistsError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="A Firebase account already uses this email") from exc
+    except (FirebaseNotConfiguredError, FirebaseError, ValueError) as exc:
+        db.rollback()
+        raise HTTPException(status_code=503, detail="Could not create the Firebase account. Check Firebase configuration and try again.") from exc
+
+    account_id = uuid4()
+    account = User(
+        id=account_id,
+        firebase_uid=firebase_user.uid,
+        email=email,
+        is_active=True,
+        role=AppRole.HOSPITAL,
+        hospital_id=hospital.id,
+    )
+    profile = Profile(
+        id=account_id,
+        firebase_uid=firebase_user.uid,
+        full_name=payload.full_name.strip(),
+        email=email,
+        organization=hospital.name,
+    )
+    db.add_all([account, profile])
+    db.add(
+        AccessLog(
+            provider_name=(admin.email or str(admin.id))[:100],
+            hospital_id=hospital.id,
+            hospital_name=hospital.name,
+            action=f"Admin created hospital account for {hospital.name}",
+            categories=[],
+            access_type="administration",
+            verification_result="admin_hospital_account_create",
+            success=True,
+        )
+    )
+    try:
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        try:
+            auth.delete_user(firebase_user.uid, app=get_firebase_app())
+        except FirebaseError:
+            pass
+        raise HTTPException(status_code=500, detail="Could not save the hospital account") from exc
+    db.refresh(account)
+    db.refresh(profile)
+    db.refresh(hospital)
+    return {
+        "hospital": hospital,
+        "account": {
+            "id": account.id,
+            "email": account.email,
+            "full_name": profile.full_name,
+            "role": account.role,
+            "hospital_id": hospital.id,
+            "hospital_name": hospital.name,
+            "is_active": account.is_active,
+            "organization": profile.organization,
+            "specialty": profile.specialty,
+        },
+    }
 
 
 @router.get("/users", response_model=list[AdminUserResponse])
