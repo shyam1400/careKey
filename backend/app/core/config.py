@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     twilio_account_sid: str | None = None
     twilio_auth_token: str | None = None
     twilio_from_number: str | None = None
+    render_external_url: str | None = None
 
     @property
     def twilio_configured(self) -> bool:

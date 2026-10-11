@@ -1,4 +1,4 @@
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -12,9 +12,22 @@ from app.models.profile import Profile
 from app.models.user import User
 from app.schemas.emergency import EmergencyAccessRequest, EmergencyProfileResponse
 from app.services.passkeys import verify_emergency_assertion
-from app.services.emergency_notifications import emergency_access_time, send_emergency_contact_alert
+from app.services.emergency_notifications import send_emergency_contact_alert
 
 router = APIRouter(prefix="/emergency", tags=["emergency"])
+
+
+@router.get("/twilio-voice-message", include_in_schema=False)
+def twilio_voice_message() -> Response:
+    """Static TwiML response used to test hosted custom speech on Twilio trial."""
+    return Response(
+        content=(
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<Response><Say>CareKey emergency alert. An emergency profile was accessed. '
+            'Please contact them to check that they are safe.</Say></Response>'
+        ),
+        media_type="application/xml",
+    )
 
 
 @router.get("/alerts/status")
@@ -121,14 +134,9 @@ def read_emergency_profile(
         verification_result="webauthn_user_verified",
     )
     if patient.emergency_contact_alerts_enabled and patient.emergency_contact_name and patient.emergency_contact_phone:
-        provider = db.scalar(select(Profile).where(Profile.id == user.id))
         background_tasks.add_task(
             send_emergency_contact_alert,
             phone=patient.emergency_contact_phone,
-            patient_name=patient.full_name or "CareKey patient",
-            doctor_name=provider.full_name if provider else (user.email or "CareKey doctor"),
-            organization=provider.organization if provider else None,
-            accessed_at=emergency_access_time(),
         )
     return EmergencyProfileResponse(
         medical_id=patient.medical_id,

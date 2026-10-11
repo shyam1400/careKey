@@ -2,7 +2,6 @@
 
 import logging
 import re
-from datetime import datetime, timezone
 
 import httpx
 
@@ -12,12 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 def send_emergency_contact_alert(
-    *,
-    phone: str,
-    patient_name: str,
-    doctor_name: str,
-    organization: str | None,
-    accessed_at: str,
+    *, phone: str
 ) -> None:
     """Place a trial-compatible voice alert; never interrupt emergency access."""
     settings = get_settings()
@@ -28,6 +22,10 @@ def send_emergency_contact_alert(
         )
         return
 
+    if not settings.render_external_url:
+        logger.warning("Emergency contact voice call skipped; Render external URL is unavailable")
+        return
+
     base_url = f"https://api.twilio.com/2010-04-01/Accounts/{settings.twilio_account_sid}"
     auth = (settings.twilio_account_sid, settings.twilio_auth_token)
     try:
@@ -36,7 +34,7 @@ def send_emergency_contact_alert(
                 f"{base_url}/Calls.json",
                 data={
                     "To": phone,
-                    "Url": "https://webhooks.twilio.com/v1/Voice/Template/voice_text_to_speech",
+                    "Url": f"{settings.render_external_url.rstrip('/')}/emergency/twilio-voice-message",
                 },
             )
             response.raise_for_status()
@@ -72,7 +70,3 @@ def _twilio_error_message(response: httpx.Response, sensitive_values: tuple[str,
         message = message.replace(value, "[redacted]")
     message = re.sub(r"(?<!\w)\+?\d[\d\s().-]{5,}\d(?!\w)", "[number redacted]", message)
     return message[:400]
-
-
-def emergency_access_time() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
