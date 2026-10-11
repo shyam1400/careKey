@@ -6,6 +6,7 @@ import { RequireRole } from "@/components/RequireRole";
 import { Badge } from "@/components/ui/badge";
 import { formatDateTime } from "@/lib/carekey";
 import { Activity, ArrowUpRight, FileText, HeartPulse, History, MapPin, QrCode, Share2, ShieldCheck } from "lucide-react";
+import { MyProcedures } from "@/components/MyProcedures";
 
 export const Route = createFileRoute("/dashboard")({
   head: () => ({
@@ -132,6 +133,8 @@ function Dashboard() {
         ))}
         </div>
       </section>
+
+      <div className="mb-9"><MyProcedures audience="patient" /></div>
 
       <section>
         <div className="mb-3 flex items-center justify-between"><div><h2 className="font-semibold">Recent access</h2><p className="text-sm text-muted-foreground">See when your information was viewed.</p></div><Link to="/history" className="text-sm font-medium text-primary hover:underline">Full history</Link></div>

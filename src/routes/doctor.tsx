@@ -5,6 +5,7 @@ import { carekeyRequest } from "@/lib/carekey-api";
 import { useAuth } from "@/hooks/useAuth";
 import { RequireRole } from "@/components/RequireRole";
 import { formatDateTime, categoryLabel } from "@/lib/carekey";
+import { MyProcedures } from "@/components/MyProcedures";
 
 export const Route = createFileRoute("/doctor")({
   head: () => ({
@@ -41,6 +42,7 @@ function DoctorPage() {
         <div><h1 className="text-2xl font-semibold">My patients</h1><p className="text-sm text-muted-foreground">{user?.hospitalName ? `Doctor at ${user.hospitalName}` : "Your account needs a hospital assignment"}</p></div>
         <Link to="/emergency" className="text-sm text-primary underline">Emergency mode</Link>
       </div>
+      <MyProcedures audience="doctor" />
       {isLoading ? (
         <p className="text-sm text-muted-foreground">Loading…</p>
       ) : error ? (
