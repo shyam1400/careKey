@@ -43,9 +43,16 @@ function Landing() {
       <div className="bg-warning-soft px-4 py-1.5 text-center text-xs font-medium text-warning-foreground">
         Research Prototype — Not for Clinical Use. All data is synthetic.
       </div>
-      <div className="absolute right-4 top-12 z-10"><ThemeToggle /></div>
+      <header className="mx-auto flex max-w-6xl justify-end px-4 py-3">
+        <nav aria-label="Account and display settings" className="flex items-center gap-2">
+          <Button asChild variant="ghost" size="sm">
+            <Link to="/auth">Sign in</Link>
+          </Button>
+          <ThemeToggle />
+        </nav>
+      </header>
 
-      <main className="mx-auto max-w-6xl px-4 pb-12 pt-16 sm:pt-20">
+      <main className="mx-auto max-w-6xl px-4 pb-12 pt-8 sm:pt-12">
         <section className="mx-auto max-w-4xl text-center">
           <div className="mx-auto mb-7 w-full max-w-[52rem]">
             <img className="block h-auto w-full dark:hidden" src="/brand/CareKey-light-logo.png" alt="CareKey — Secure Emergency Health Access" />
@@ -58,12 +65,12 @@ function Landing() {
             CareKey gives every patient an emergency medical ID and control over who can see their records, with expiry, revocation and a complete audit trail.
           </p>
           <div className="mt-8 flex flex-wrap justify-center gap-3">
-          <Button asChild size="lg">
-            <Link to="/auth">Create a demo account</Link>
-          </Button>
-          <Button asChild size="lg" variant="outline">
-            <Link to="/hospitals">Find nearby hospitals</Link>
-          </Button>
+            <Button asChild size="lg">
+              <Link to="/auth">Create a new account</Link>
+            </Button>
+            <Button asChild size="lg" variant="outline">
+              <Link to="/hospitals">Find nearby hospitals</Link>
+            </Button>
           </div>
         </section>
 
@@ -81,9 +88,6 @@ function Landing() {
           ))}
           </div>
         </section>
-        <div className="mt-8 text-center">
-          <Link to="/auth" className="text-sm font-medium text-primary hover:underline">Already have an account? Sign in</Link>
-        </div>
       </main>
 
       <footer className="border-t py-8 text-center text-xs text-muted-foreground">
