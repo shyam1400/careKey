@@ -13,6 +13,7 @@ class PatientCreate(BaseModel):
     address: str | None = None
     emergency_contact_name: str | None = Field(default=None, max_length=100)
     emergency_contact_phone: str | None = Field(default=None, max_length=20)
+    emergency_contact_alerts_enabled: bool = False
     blood_group: str | None = Field(default=None, max_length=8)
     rh_factor: str | None = Field(default=None, max_length=16)
 
@@ -27,6 +28,7 @@ class PatientUpdate(BaseModel):
     address: str | None = None
     emergency_contact_name: str | None = Field(default=None, max_length=100)
     emergency_contact_phone: str | None = Field(default=None, max_length=20)
+    emergency_contact_alerts_enabled: bool = False
     blood_group: str | None = Field(default=None, max_length=8)
     rh_factor: str | None = Field(default=None, max_length=16)
 
@@ -45,6 +47,7 @@ class PatientResponse(BaseModel):
     address: str | None = None
     emergency_contact_name: str | None = None
     emergency_contact_phone: str | None = None
+    emergency_contact_alerts_enabled: bool = False
     blood_group: str | None = None
     rh_factor: str | None = None
     created_at: datetime | None = None
@@ -64,6 +67,7 @@ class PatientResponse(BaseModel):
             address=getattr(obj, "address", None),
             emergency_contact_name=getattr(obj, "emergency_contact_name", None),
             emergency_contact_phone=getattr(obj, "emergency_contact_phone", None),
+            emergency_contact_alerts_enabled=getattr(obj, "emergency_contact_alerts_enabled", False),
             blood_group=getattr(obj, "blood_group", None),
             rh_factor=getattr(obj, "rh_factor", None),
             created_at=getattr(obj, "created_at", None),

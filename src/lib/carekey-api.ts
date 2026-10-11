@@ -36,6 +36,7 @@ export type Patient = {
   address?: string | null;
   emergency_contact_name?: string | null;
   emergency_contact_phone?: string | null;
+  emergency_contact_alerts_enabled?: boolean;
   blood_group?: string | null;
   rh_factor?: string | null;
 };

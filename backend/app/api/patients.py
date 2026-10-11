@@ -1,4 +1,5 @@
 from collections.abc import Sequence
+import re
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -16,6 +17,8 @@ from app.services.passkeys import verify_patient_assertion
 from app.utils.ids import generate_medical_id
 
 router = APIRouter(prefix="/patients", tags=["patients"])
+
+_E164_PHONE = re.compile(r"^\+[1-9]\d{7,14}$")
 
 
 @router.get("/me/medical-id", response_model=PatientMedicalIdResponse)
@@ -83,6 +86,12 @@ def create_patient(
     if user.role != AppRole.PATIENT:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
 
+    if payload.emergency_contact_alerts_enabled:
+        if not (payload.emergency_contact_name and payload.emergency_contact_name.strip()):
+            raise HTTPException(status_code=422, detail="Add an emergency contact name before enabling alerts")
+        if not (payload.emergency_contact_phone and _E164_PHONE.fullmatch(payload.emergency_contact_phone.strip())):
+            raise HTTPException(status_code=422, detail="Use an international phone number in E.164 format, such as +14155550123")
+
     if db.scalar(select(Patient).where(Patient.id == user.id)) is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Patient profile already exists")
 
@@ -104,6 +113,7 @@ def create_patient(
         address=payload.address,
         emergency_contact_name=payload.emergency_contact_name,
         emergency_contact_phone=payload.emergency_contact_phone,
+        emergency_contact_alerts_enabled=payload.emergency_contact_alerts_enabled,
         blood_group=payload.blood_group,
         rh_factor=payload.rh_factor,
     )
@@ -140,6 +150,15 @@ def update_patient(
         if payload.challenge_id is None or payload.credential is None:
             raise HTTPException(status_code=403, detail="Verify this profile change with your phone passkey")
         verify_patient_assertion(db, user, payload.challenge_id, payload.credential)
+
+    alerts_enabled = update_data.get("emergency_contact_alerts_enabled", patient.emergency_contact_alerts_enabled)
+    contact_name = update_data.get("emergency_contact_name", patient.emergency_contact_name)
+    contact_phone = update_data.get("emergency_contact_phone", patient.emergency_contact_phone)
+    if alerts_enabled:
+        if not (contact_name and contact_name.strip()):
+            raise HTTPException(status_code=422, detail="Add an emergency contact name before enabling alerts")
+        if not (contact_phone and _E164_PHONE.fullmatch(contact_phone.strip())):
+            raise HTTPException(status_code=422, detail="Use an international phone number in E.164 format, such as +14155550123")
 
     for field, value in update_data.items():
         if field == "full_name":

@@ -63,3 +63,15 @@ The suite mocks Firebase token verification and uses fake database sessions for 
 ## Configuration
 
 See [`.env.example`](.env.example). Firebase credentials are required for real authenticated requests. Private medical document uploads use Supabase Storage signed URLs; configure `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and a private `medical-documents` bucket before enabling uploads. Keep the Storage service key only in the backend environment. OSRM routing is not implemented.
+
+## Emergency contact alerts
+
+Patients can opt in from **Profile → Emergency contact**. After a doctor successfully verifies a passkey and reads an emergency profile, CareKey queues an SMS and automated voice call to the saved contact. Alerts identify the patient, doctor, the organization listed on the doctor's CareKey profile, and the access time; they do not include medical details. Notification delivery is best-effort and does not affect emergency profile access.
+
+Configure these server-only environment variables to enable the opt-in control and delivery:
+
+- `TWILIO_ACCOUNT_SID`
+- `TWILIO_AUTH_TOKEN`
+- `TWILIO_FROM_NUMBER` (your Twilio number in E.164 format)
+
+All three are required. Never put the auth token in frontend environment variables. Twilio trial accounts restrict destinations and calling countries, and may not allow custom SMS content; verify the intended emergency-contact number in Twilio and check trial-account capabilities before relying on SMS. The voice call is attempted separately, so one channel failing does not suppress the other.

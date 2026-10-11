@@ -94,6 +94,7 @@ function BasicSection() {
     address: "",
     emergency_contact_name: "",
     emergency_contact_phone: "",
+    emergency_contact_alerts_enabled: false,
     blood_group: "",
     rh_factor: "positive",
   });
@@ -101,7 +102,7 @@ function BasicSection() {
   const [pendingSave, setPendingSave] = useState<{
     challengeId: string;
     options: PublicKeyCredentialRequestOptionsJSON;
-    payload: Record<string, string | null>;
+    payload: Record<string, string | boolean | null>;
   } | null>(null);
 
   const { data } = useQuery({
@@ -110,6 +111,12 @@ function BasicSection() {
     queryFn: async () => {
       return carekeyRequest<Patient>(`/patients/${user!.id}`, user!);
     },
+  });
+
+  const { data: alertStatus } = useQuery({
+    queryKey: ["emergency-alert-status", user?.id],
+    enabled: !!user,
+    queryFn: () => carekeyRequest<{ configured: boolean }>("/emergency/alerts/status", user!),
   });
 
   useEffect(() => {
@@ -122,6 +129,7 @@ function BasicSection() {
       address: data.address ?? "",
       emergency_contact_name: data.emergency_contact_name ?? "",
       emergency_contact_phone: data.emergency_contact_phone ?? "",
+      emergency_contact_alerts_enabled: data.emergency_contact_alerts_enabled ?? false,
       blood_group: data.blood_group ?? "",
       rh_factor: data.rh_factor ?? "positive",
     });
@@ -150,6 +158,7 @@ function BasicSection() {
         address: form.address.slice(0, 300) || null,
         emergency_contact_name: form.emergency_contact_name.slice(0, 100) || null,
         emergency_contact_phone: form.emergency_contact_phone.slice(0, 20) || null,
+        emergency_contact_alerts_enabled: form.emergency_contact_alerts_enabled,
         blood_group: form.blood_group || null,
         rh_factor: form.rh_factor || null,
         },
@@ -249,11 +258,39 @@ function BasicSection() {
           </Field>
           <Field label="Contact phone">
             <Input
+              type="tel"
               value={form.emergency_contact_phone}
               maxLength={20}
+              placeholder="+14155550123"
+              autoComplete="tel"
               onChange={(e) => setForm({ ...form, emergency_contact_phone: e.target.value })}
             />
           </Field>
+          <p className="-mt-2 text-sm text-muted-foreground">
+            For alerts, enter the number in international format starting with +.
+          </p>
+          <div className="flex items-start justify-between gap-4 rounded-lg border border-border p-4">
+            <div className="space-y-1">
+              <Label htmlFor="emergency-contact-alerts">Notify this contact after emergency access</Label>
+              <p className="text-sm text-muted-foreground">
+                When a doctor successfully verifies with a passkey and opens your emergency profile, this contact will
+                receive a text and automated call with the doctor, their listed organization, and access time. No medical
+                details are sent. Their phone number and this event are shared with Twilio to deliver the alerts.
+              </p>
+              {!alertStatus?.configured && (
+                <p className="text-sm text-muted-foreground">
+                  Alerts are unavailable until Twilio is configured on the CareKey server.
+                </p>
+              )}
+            </div>
+            <Switch
+              id="emergency-contact-alerts"
+              checked={form.emergency_contact_alerts_enabled}
+              disabled={!alertStatus?.configured && !form.emergency_contact_alerts_enabled}
+              onCheckedChange={(checked) => setForm({ ...form, emergency_contact_alerts_enabled: checked })}
+              aria-label="Notify emergency contact after passkey-verified emergency access"
+            />
+          </div>
         </div>
 
         <div className="card-surface space-y-4 p-6">

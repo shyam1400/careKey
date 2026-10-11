@@ -39,6 +39,13 @@ class Settings(BaseSettings):
             "(FIREBASE_CREDENTIALS_PATH). Never put the JSON contents in env."
         ),
     )
+    twilio_account_sid: str | None = None
+    twilio_auth_token: str | None = None
+    twilio_from_number: str | None = None
+
+    @property
+    def twilio_configured(self) -> bool:
+        return all((self.twilio_account_sid, self.twilio_auth_token, self.twilio_from_number))
 
     @property
     def cors_origin_list(self) -> list[str]:
