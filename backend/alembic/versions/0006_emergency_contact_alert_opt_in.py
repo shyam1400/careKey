@@ -4,7 +4,7 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision = "0006_emergency_contact_alert_opt_in"
+revision = "0006_emergency_alerts"
 down_revision = "0005_passkey_reauth"
 branch_labels = None
 depends_on = None

@@ -113,7 +113,7 @@ function BasicSection() {
     },
   });
 
-  const { data: alertStatus } = useQuery({
+  const { data: alertStatus, isError: alertStatusUnavailable } = useQuery({
     queryKey: ["emergency-alert-status", user?.id],
     enabled: !!user,
     queryFn: () => carekeyRequest<{ configured: boolean }>("/emergency/alerts/status", user!),
@@ -277,16 +277,22 @@ function BasicSection() {
                 receive a text and automated call with the doctor, their listed organization, and access time. No medical
                 details are sent. Their phone number and this event are shared with Twilio to deliver the alerts.
               </p>
-              {!alertStatus?.configured && (
+              {alertStatus?.configured === false && (
                 <p className="text-sm text-muted-foreground">
-                  Alerts are unavailable until Twilio is configured on the CareKey server.
+                  The CareKey server is not reporting Twilio as ready. You can save your consent now; alerts will be
+                  delivered once the server configuration is active.
+                </p>
+              )}
+              {alertStatusUnavailable && (
+                <p className="text-sm text-muted-foreground">
+                  CareKey could not check Twilio status. You can still save your consent; alerts require Twilio to be
+                  configured on the server.
                 </p>
               )}
             </div>
             <Switch
               id="emergency-contact-alerts"
               checked={form.emergency_contact_alerts_enabled}
-              disabled={!alertStatus?.configured && !form.emergency_contact_alerts_enabled}
               onCheckedChange={(checked) => setForm({ ...form, emergency_contact_alerts_enabled: checked })}
               aria-label="Notify emergency contact after passkey-verified emergency access"
             />
