@@ -18,6 +18,7 @@ export const Route = createFileRoute("/hospital-account")({
 
 type Doctor = { id: string; email: string | null; full_name: string; specialty: string | null; is_active: boolean };
 type Patient = { id: string; medical_id: string; full_name: string; email: string | null };
+type ProcedurePatient = Pick<Patient, "id" | "medical_id" | "full_name">;
 type Procedure = {
   id: string; patient_id: string; patient_name: string; doctor_id: string; doctor_name: string;
   name: string; status: "planned" | "in_progress" | "completed" | "cancelled"; notes: string | null;
@@ -43,8 +44,20 @@ function HospitalAccountPage() {
     queryFn: () => carekeyRequest<Procedure[]>("/hospital-account/procedures", user!) });
   const logs = useQuery({ queryKey: ["hospital-account", "logs", user?.id], enabled: !!user,
     queryFn: () => carekeyRequest<AccessLog[]>("/hospital-account/access-logs", user!) });
-  const [patientId, setPatientId] = useState("");
+  const [medicalId, setMedicalId] = useState("");
+  const [procedurePatient, setProcedurePatient] = useState<ProcedurePatient | null>(null);
   const [doctorId, setDoctorId] = useState("");
+
+  async function findProcedurePatient() {
+    if (!user || !medicalId.trim()) return;
+    setProcedurePatient(null);
+    try {
+      const patient = await carekeyRequest<ProcedurePatient>(`/hospital-account/patients/lookup?medical_id=${encodeURIComponent(medicalId.trim())}`, user);
+      setProcedurePatient(patient);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not find that patient");
+    }
+  }
 
   async function addProcedure(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -52,11 +65,11 @@ function HospitalAccountPage() {
     const form = new FormData(event.currentTarget);
     try {
       await carekeyRequest("/hospital-account/procedures", user, { method: "POST", body: JSON.stringify({
-        patient_id: patientId, doctor_id: doctorId, name: String(form.get("name") || "").trim(),
+        patient_id: procedurePatient?.id, doctor_id: doctorId, name: String(form.get("name") || "").trim(),
         notes: String(form.get("notes") || "").trim() || null,
       }) });
       toast.success("Procedure added to the hospital tracker");
-      event.currentTarget.reset(); setPatientId(""); setDoctorId("");
+      event.currentTarget.reset(); setMedicalId(""); setProcedurePatient(null); setDoctorId("");
       await Promise.all([qc.invalidateQueries({ queryKey: ["hospital-account", "procedures"] }),
         qc.invalidateQueries({ queryKey: ["hospital-account", "dashboard"] }),
         qc.invalidateQueries({ queryKey: ["hospital-account", "patients"] })]);
@@ -114,11 +127,13 @@ function HospitalAccountPage() {
     <section className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
       <form className="card-surface space-y-3 p-5" onSubmit={(event) => void addProcedure(event)}>
         <div><h2 className="text-lg font-semibold">Track a procedure</h2><p className="text-sm text-muted-foreground">Choose a patient and a doctor from this hospital.</p></div>
-        <div className="space-y-1.5"><Label>Patient</Label><select className="h-10 w-full rounded-md border bg-background px-3 text-sm" required value={patientId} onChange={(event) => setPatientId(event.target.value)}><option value="">Select patient</option>{(patients.data ?? []).map((patient) => <option key={patient.id} value={patient.id}>{patient.full_name} · {patient.medical_id}</option>)}</select></div>
+        <div className="space-y-1.5"><Label htmlFor="procedure-medical-id">Patient CareKey Medical ID</Label><div className="flex gap-2"><Input id="procedure-medical-id" placeholder="CK-XXXXXXXX" value={medicalId} onChange={(event) => { setMedicalId(event.target.value.toUpperCase()); setProcedurePatient(null); }} /><Button type="button" variant="outline" onClick={() => void findProcedurePatient()} disabled={!/^CK-[0-9A-F]{8}$/.test(medicalId.trim())}>Find patient</Button></div>
+          {procedurePatient ? <p className="text-sm text-success">Selected: {procedurePatient.full_name} · {procedurePatient.medical_id}</p> : <p className="text-xs text-muted-foreground">Enter the ID shown on the patient’s CareKey profile or emergency QR.</p>}</div>
         <div className="space-y-1.5"><Label>Doctor</Label><select className="h-10 w-full rounded-md border bg-background px-3 text-sm" required value={doctorId} onChange={(event) => setDoctorId(event.target.value)}><option value="">Select doctor</option>{(doctors.data ?? []).filter((doctor) => doctor.is_active).map((doctor) => <option key={doctor.id} value={doctor.id}>{doctor.full_name}</option>)}</select></div>
         <div className="space-y-1.5"><Label>Procedure</Label><Input name="name" required maxLength={160} /></div>
         <div className="space-y-1.5"><Label>Notes</Label><Input name="notes" /></div>
-        <Button type="submit" disabled={!patients.data?.length || !doctors.data?.some((doctor) => doctor.is_active)}>Add to tracker</Button>
+        {!doctors.isLoading && !doctors.data?.some((doctor) => doctor.is_active) ? <p role="alert" className="text-sm text-destructive">No active doctor is assigned to this hospital. Ask a platform administrator to assign one before tracking a procedure.</p> : null}
+        <Button type="submit" disabled={!procedurePatient || !doctorId || !doctors.data?.some((doctor) => doctor.is_active)}>Add to tracker</Button>
       </form>
       <div className="space-y-3"><h2 className="text-lg font-semibold">Procedures</h2>
         {(procedures.data ?? []).map((procedure) => <div key={procedure.id} className="card-surface space-y-2 p-4">

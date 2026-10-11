@@ -185,6 +185,23 @@ def hospital_patients(
             for row in rows]
 
 
+@router.get("/patients/lookup")
+def lookup_hospital_patient(
+    medical_id: str = Query(..., min_length=11, max_length=11, pattern=r"^CK-[0-9A-Fa-f]{8}$"),
+    db: Session = Depends(get_db), user: User = Depends(get_current_user)
+) -> dict[str, Any]:
+    """Find one patient by the exact CareKey ID supplied by the patient or their QR."""
+    _hospital_for(user, db)
+    row = db.execute(
+        select(Patient.id, Patient.medical_id, Profile.full_name)
+        .join(Profile, Profile.id == Patient.id)
+        .where(Patient.medical_id == medical_id.upper())
+    ).first()
+    if row is None:
+        raise HTTPException(status_code=404, detail="No patient found for that CareKey Medical ID")
+    return {"id": row.id, "medical_id": row.medical_id, "full_name": row.full_name}
+
+
 @router.get("/procedures", response_model=list[HospitalProcedureResponse])
 def list_procedures(
     status_filter: str | None = Query(default=None, alias="status", pattern="^(planned|in_progress|completed|cancelled)$"),
