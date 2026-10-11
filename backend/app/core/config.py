@@ -48,6 +48,15 @@ class Settings(BaseSettings):
         return all((self.twilio_account_sid, self.twilio_auth_token, self.twilio_from_number))
 
     @property
+    def twilio_missing_settings(self) -> list[str]:
+        values = {
+            "TWILIO_ACCOUNT_SID": self.twilio_account_sid,
+            "TWILIO_AUTH_TOKEN": self.twilio_auth_token,
+            "TWILIO_FROM_NUMBER": self.twilio_from_number,
+        }
+        return [name for name, value in values.items() if not value or not value.strip()]
+
+    @property
     def cors_origin_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
 

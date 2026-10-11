@@ -18,9 +18,10 @@ router = APIRouter(prefix="/emergency", tags=["emergency"])
 
 
 @router.get("/alerts/status")
-def emergency_alerts_status(user: User = Depends(get_current_user)) -> dict[str, bool]:
+def emergency_alerts_status(user: User = Depends(get_current_user)) -> dict[str, bool | list[str]]:
     del user
-    return {"configured": get_settings().twilio_configured}
+    settings = get_settings()
+    return {"configured": settings.twilio_configured, "missing": settings.twilio_missing_settings}
 
 
 def _provider_profile(db: Session, user: User) -> Profile:

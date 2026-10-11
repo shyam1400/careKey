@@ -116,7 +116,7 @@ function BasicSection() {
   const { data: alertStatus, isError: alertStatusUnavailable } = useQuery({
     queryKey: ["emergency-alert-status", user?.id],
     enabled: !!user,
-    queryFn: () => carekeyRequest<{ configured: boolean }>("/emergency/alerts/status", user!),
+    queryFn: () => carekeyRequest<{ configured: boolean; missing: string[] }>("/emergency/alerts/status", user!),
   });
 
   useEffect(() => {
@@ -281,6 +281,7 @@ function BasicSection() {
                 <p className="text-sm text-muted-foreground">
                   The CareKey server is not reporting Twilio as ready. You can save your consent now; alerts will be
                   delivered once the server configuration is active.
+                  {alertStatus.missing.length > 0 ? ` Missing server settings: ${alertStatus.missing.join(", ")}.` : ""}
                 </p>
               )}
               {alertStatusUnavailable && (

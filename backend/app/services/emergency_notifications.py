@@ -22,6 +22,10 @@ def send_emergency_contact_alert(
     """Send SMS and voice independently; never raise into the emergency-access flow."""
     settings = get_settings()
     if not settings.twilio_configured:
+        logger.warning(
+            "Emergency contact notification skipped; missing Twilio settings: %s",
+            ", ".join(settings.twilio_missing_settings),
+        )
         return
 
     place = organization.strip() if organization and organization.strip() else "an organization not listed in CareKey"
@@ -39,8 +43,14 @@ def send_emergency_contact_alert(
                 data={"To": phone, "From": settings.twilio_from_number, "Body": text},
             )
             response.raise_for_status()
-    except Exception:
-        logger.warning("Emergency contact SMS delivery failed")
+    except httpx.HTTPStatusError as exc:
+        logger.warning(
+            "Emergency contact SMS rejected by Twilio (HTTP %s, error code %s)",
+            exc.response.status_code,
+            _twilio_error_code(exc.response),
+        )
+    except Exception as exc:
+        logger.warning("Emergency contact SMS request failed (%s)", type(exc).__name__)
 
     twiml = f"<Response><Say>{voice}</Say></Response>"
     try:
@@ -50,8 +60,22 @@ def send_emergency_contact_alert(
                 data={"To": phone, "From": settings.twilio_from_number, "Twiml": twiml},
             )
             response.raise_for_status()
-    except Exception:
-        logger.warning("Emergency contact voice call failed")
+    except httpx.HTTPStatusError as exc:
+        logger.warning(
+            "Emergency contact voice call rejected by Twilio (HTTP %s, error code %s)",
+            exc.response.status_code,
+            _twilio_error_code(exc.response),
+        )
+    except Exception as exc:
+        logger.warning("Emergency contact voice request failed (%s)", type(exc).__name__)
+
+
+def _twilio_error_code(response: httpx.Response) -> str:
+    try:
+        code = response.json().get("code")
+    except (ValueError, AttributeError):
+        code = None
+    return str(code) if code is not None else "unknown"
 
 
 def emergency_access_time() -> str:
