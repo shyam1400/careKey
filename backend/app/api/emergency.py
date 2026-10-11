@@ -17,9 +17,9 @@ from app.services.emergency_notifications import send_emergency_contact_alert
 router = APIRouter(prefix="/emergency", tags=["emergency"])
 
 
-@router.get("/twilio-voice-message", include_in_schema=False)
+@router.api_route("/twilio-voice-message", methods=["GET", "POST"], include_in_schema=False)
 def twilio_voice_message() -> Response:
-    """Static TwiML response used to test hosted custom speech on Twilio trial."""
+    """Return static TwiML; Twilio requests call URLs with POST by default."""
     return Response(
         content=(
             '<?xml version="1.0" encoding="UTF-8"?>'
