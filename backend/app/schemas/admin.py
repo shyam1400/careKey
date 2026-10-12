@@ -23,6 +23,7 @@ class AdminUserResponse(BaseModel):
     email: str | None
     full_name: str | None
     role: Literal["patient", "doctor", "hospital", "hospital_admin", "admin"]
+    doctor_code: str | None = None
     hospital_id: UUID | None = None
     hospital_name: str | None = None
     is_active: bool

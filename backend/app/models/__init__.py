@@ -1,4 +1,5 @@
 from app.models.audit import AccessLog
+from app.models.affiliation import HospitalDoctorAffiliation
 from app.models.consent import Consent
 from app.models.enums import AppRole, ConsentStatus
 from app.models.hospital import Hospital, HospitalProcedure
@@ -10,6 +11,7 @@ from app.models.user import User
 
 __all__ = [
     "AccessLog",
+    "HospitalDoctorAffiliation",
     "Allergy",
     "AppRole",
     "Condition",

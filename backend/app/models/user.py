@@ -25,6 +25,7 @@ class User(Base):
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
     firebase_uid: Mapped[str] = mapped_column(String(128), nullable=False)
     email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    doctor_code: Mapped[str | None] = mapped_column(String(12), unique=True, nullable=True, default=None)
     is_active: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,

@@ -18,12 +18,12 @@ CHALLENGE_TTL = timedelta(minutes=3)
 
 
 def require_doctor(user: User) -> None:
-    if not user.is_active or user.role != AppRole.DOCTOR or user.hospital_id is None:
-        raise HTTPException(status_code=403, detail="Only active hospital-assigned doctors can manage emergency passkeys")
+    if not user.is_active or user.role != AppRole.DOCTOR:
+        raise HTTPException(status_code=403, detail="Only active doctors can manage emergency passkeys")
 
 
 def require_passkey_user(user: User) -> None:
-    if not user.is_active or user.role not in {AppRole.DOCTOR, AppRole.PATIENT} or (user.role == AppRole.DOCTOR and user.hospital_id is None):
+    if not user.is_active or user.role not in {AppRole.DOCTOR, AppRole.PATIENT}:
         raise HTTPException(status_code=403, detail="Only active patient or doctor accounts can manage passkeys")
 
 

@@ -16,7 +16,8 @@ export const Route = createFileRoute("/hospital-account")({
   component: () => <RequireRole roles={["hospital", "hospital_admin"]}><HospitalAccountPage /></RequireRole>,
 });
 
-type Doctor = { id: string; email: string | null; full_name: string; specialty: string | null; is_active: boolean };
+type Doctor = { id: string; email: string | null; doctor_code: string | null; full_name: string; specialty: string | null; is_active: boolean };
+type Affiliation = { id: string; doctor_id: string; doctor_code: string | null; doctor_name: string; specialty: string | null; status: string; initiated_by: string };
 type Patient = { id: string; medical_id: string; full_name: string; email: string | null };
 type ProcedurePatient = Pick<Patient, "id" | "medical_id" | "full_name">;
 type Procedure = {
@@ -33,7 +34,7 @@ function HospitalAccountPage() {
   const { user } = useAuth();
   const qc = useQueryClient();
   const hospital = useQuery({ queryKey: ["hospital-account", "me", user?.id], enabled: !!user,
-    queryFn: () => carekeyRequest<{ id: string; name: string; admin_name: string | null }>("/hospital-account/me", user!) });
+    queryFn: () => carekeyRequest<{ id: string; name: string; hospital_code: string; admin_name: string | null }>("/hospital-account/me", user!) });
   const dashboard = useQuery({ queryKey: ["hospital-account", "dashboard", user?.id], enabled: !!user,
     queryFn: () => carekeyRequest<{ doctor_count: number; patient_count: number; ongoing_procedure_count: number }>("/hospital-account/dashboard", user!) });
   const doctors = useQuery({ queryKey: ["hospital-account", "doctors", user?.id], enabled: !!user,
@@ -44,9 +45,33 @@ function HospitalAccountPage() {
     queryFn: () => carekeyRequest<Procedure[]>("/hospital-account/procedures", user!) });
   const logs = useQuery({ queryKey: ["hospital-account", "logs", user?.id], enabled: !!user,
     queryFn: () => carekeyRequest<AccessLog[]>("/hospital-account/access-logs", user!) });
+  const affiliations = useQuery({ queryKey: ["affiliations", user?.id], enabled: !!user,
+    queryFn: () => carekeyRequest<Affiliation[]>("/affiliations/me", user!) });
   const [medicalId, setMedicalId] = useState("");
+  const [doctorCode, setDoctorCode] = useState("");
+  const [doctorMatch, setDoctorMatch] = useState<{ id: string; code: string; name: string } | null>(null);
+  const [affiliationMessage, setAffiliationMessage] = useState("");
   const [procedurePatient, setProcedurePatient] = useState<ProcedurePatient | null>(null);
   const [doctorId, setDoctorId] = useState("");
+
+  async function lookupDoctor() {
+    if (!user) return;
+    try { const match = await carekeyRequest<{ id: string; code: string; name: string }>(`/affiliations/lookup/${encodeURIComponent(doctorCode.trim().toUpperCase())}`, user);
+      setDoctorMatch(match); setAffiliationMessage("");
+    } catch (error) { setDoctorMatch(null); setAffiliationMessage(error instanceof Error ? error.message : "Doctor not found"); }
+  }
+  async function inviteDoctor() {
+    if (!user) return;
+    try { await carekeyRequest("/affiliations/request", user, { method: "POST", body: JSON.stringify({ code: doctorMatch?.code }) });
+      setDoctorCode(""); setDoctorMatch(null); setAffiliationMessage("Request sent to the doctor for approval."); await affiliations.refetch();
+    } catch (error) { setAffiliationMessage(error instanceof Error ? error.message : "Could not send request"); }
+  }
+  async function decideAffiliation(id: string, approve: boolean) {
+    if (!user) return;
+    try { await carekeyRequest(`/affiliations/${id}/decision`, user, { method: "POST", body: JSON.stringify({ approve }) });
+      await Promise.all([affiliations.refetch(), qc.invalidateQueries({ queryKey: ["hospital-account", "doctors"] }), qc.invalidateQueries({ queryKey: ["hospital-account", "dashboard"] })]);
+    } catch (error) { setAffiliationMessage(error instanceof Error ? error.message : "Could not update request"); }
+  }
 
   async function findProcedurePatient() {
     if (!user || !medicalId.trim()) return;
@@ -85,15 +110,6 @@ function HospitalAccountPage() {
     } catch (error) { toast.error(error instanceof Error ? error.message : "Could not update procedure"); }
   }
 
-  async function setDoctorActive(doctor: Doctor) {
-    if (!user || !window.confirm(`${doctor.is_active ? "Deactivate" : "Reactivate"} ${doctor.full_name}?`)) return;
-    try {
-      await carekeyRequest(`/hospital-account/doctors/${doctor.id}/status?is_active=${!doctor.is_active}`, user, { method: "PATCH" });
-      toast.success(doctor.is_active ? "Doctor deactivated" : "Doctor reactivated");
-      await qc.invalidateQueries({ queryKey: ["hospital-account", "doctors"] });
-    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not update doctor"); }
-  }
-
   async function saveDoctor(doctor: Doctor, fullName: string, specialty: string): Promise<boolean> {
     if (!user) return false;
     try {
@@ -107,7 +123,7 @@ function HospitalAccountPage() {
   }
 
   return <div className="space-y-7">
-    <PageHeading title={hospital.data?.name ?? "Hospital dashboard"} description="Manage your hospital’s care team, patient activity and ongoing procedures." />
+    <PageHeading title={hospital.data?.name ?? "Hospital dashboard"} description={`Hospital ID: ${hospital.data?.hospital_code ?? "Loading…"} · Manage your hospital’s care team, patient activity and ongoing procedures.`} />
     {hospital.error ? <p role="alert" className="text-sm text-destructive">Could not load hospital account: {hospital.error.message}</p> : null}
     <section className="grid gap-3 sm:grid-cols-3">
       {[ ["Doctors", dashboard.data?.doctor_count], ["Patients seen", dashboard.data?.patient_count], ["Ongoing procedures", dashboard.data?.ongoing_procedure_count] ].map(([label, count]) =>
@@ -115,9 +131,11 @@ function HospitalAccountPage() {
     </section>
     <section className="grid gap-6 lg:grid-cols-2">
       <div className="space-y-3"><h2 className="text-lg font-semibold">Doctors</h2>
+        <div className="card-surface space-y-2 p-4"><Label htmlFor="doctor-code">Look up a doctor by Doctor ID</Label><div className="flex gap-2"><Input id="doctor-code" placeholder="DOC-XXXXXXXX" value={doctorCode} onChange={(event) => { setDoctorCode(event.target.value.toUpperCase()); setDoctorMatch(null); }} /><Button variant="outline" onClick={() => void lookupDoctor()} disabled={!/^DOC-[0-9A-F]{8}$/.test(doctorCode)}>Find</Button></div>{doctorMatch ? <div className="flex items-center justify-between gap-2 rounded-md border p-3 text-sm"><span>{doctorMatch.name} · {doctorMatch.code}</span><Button size="sm" onClick={() => void inviteDoctor()}>Request to add</Button></div> : null}<p className="text-xs text-muted-foreground">The doctor must approve before they are added to your hospital.</p>{affiliationMessage ? <p role="status" className="text-sm text-muted-foreground">{affiliationMessage}</p> : null}</div>
+        {affiliations.data?.filter((item) => item.status === "pending_hospital" && item.initiated_by === "doctor").map((item) => <div key={item.id} className="card-surface flex flex-wrap items-center justify-between gap-2 p-3"><p className="text-sm"><strong>{item.doctor_name}</strong> · {item.doctor_code} requested to join</p><div className="flex gap-2"><Button size="sm" onClick={() => void decideAffiliation(item.id, true)}>Approve</Button><Button size="sm" variant="outline" onClick={() => void decideAffiliation(item.id, false)}>Deny</Button></div></div>)}
         {(doctors.data ?? []).map((doctor) => <HospitalDoctorRow key={doctor.id} doctor={doctor}
-          onSave={(name, specialty) => saveDoctor(doctor, name, specialty)} onToggle={() => setDoctorActive(doctor)} />)}
-        {!doctors.isLoading && !doctors.data?.length ? <p className="card-surface p-4 text-sm text-muted-foreground">No doctors are assigned to this hospital yet. A platform administrator can assign them.</p> : null}
+          onSave={(name, specialty) => saveDoctor(doctor, name, specialty)} />)}
+        {!doctors.isLoading && !doctors.data?.length ? <p className="card-surface p-4 text-sm text-muted-foreground">No approved doctors yet. Look up a doctor by ID or wait for an affiliation request.</p> : null}
       </div>
       <div className="space-y-3"><h2 className="text-lg font-semibold">Patient roster</h2>
         {(patients.data ?? []).map((patient) => <div key={patient.id} className="card-surface p-3"><p className="font-medium">{patient.full_name}</p><p className="text-sm text-muted-foreground">Medical ID {patient.medical_id}</p></div>)}
@@ -151,8 +169,8 @@ function HospitalAccountPage() {
   </div>;
 }
 
-function HospitalDoctorRow({ doctor, onSave, onToggle }: {
-  doctor: Doctor; onSave: (name: string, specialty: string) => Promise<boolean>; onToggle: () => void;
+function HospitalDoctorRow({ doctor, onSave }: {
+  doctor: Doctor; onSave: (name: string, specialty: string) => Promise<boolean>;
 }) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(doctor.full_name);
@@ -163,8 +181,8 @@ function HospitalDoctorRow({ doctor, onSave, onToggle }: {
       <div className="space-y-1.5"><Label>Specialty</Label><Input value={specialty} maxLength={120} onChange={(event) => setSpecialty(event.target.value)} /></div>
       <div className="flex gap-2"><Button size="sm" onClick={() => void onSave(name, specialty).then((saved) => { if (saved) setEditing(false); })}>Save</Button><Button size="sm" variant="outline" onClick={() => setEditing(false)}>Cancel</Button></div>
     </> : <div className="flex flex-wrap items-center justify-between gap-3">
-      <div><p className="font-medium">{doctor.full_name}</p><p className="text-sm text-muted-foreground">{doctor.specialty || "Doctor"} · {doctor.email || ""} · {doctor.is_active ? "Active" : "Inactive"}</p></div>
-      <div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => setEditing(true)}>Edit profile</Button><Button size="sm" variant="outline" onClick={onToggle}>{doctor.is_active ? "Deactivate" : "Reactivate"}</Button></div>
+      <div><p className="font-medium">{doctor.full_name}</p><p className="text-sm text-muted-foreground">{doctor.specialty || "Doctor"} · {doctor.doctor_code || "No ID"} · {doctor.email || ""}</p></div>
+      <Button size="sm" variant="outline" onClick={() => setEditing(true)}>Edit profile</Button>
     </div>}
   </div>;
 }

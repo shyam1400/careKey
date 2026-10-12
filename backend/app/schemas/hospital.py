@@ -32,6 +32,7 @@ class HospitalResponse(BaseModel):
 
     id: UUID
     name: str
+    hospital_code: str
     latitude: float
     longitude: float
     address: str | None

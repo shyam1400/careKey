@@ -59,11 +59,14 @@ function EmergencyPage() {
   const qc = useQueryClient();
   const [medicalId, setMedicalId] = useState("");
   const [reason, setReason] = useState(REASONS[0]);
+  const [hospitalId, setHospitalId] = useState("");
   const [data, setData] = useState<EmergencyProfile | null>(null);
   const [scanning, setScanning] = useState(false);
   const [busy, setBusy] = useState(false);
   const [registrationSetup, setRegistrationSetup] = useState<{ challengeId: string; options: PublicKeyCredentialCreationOptionsJSON } | null>(null);
-  const [pendingAccess, setPendingAccess] = useState<{ challengeId: string; options: PublicKeyCredentialRequestOptionsJSON; medicalId: string; reason: string } | null>(null);
+  const [pendingAccess, setPendingAccess] = useState<{ challengeId: string; options: PublicKeyCredentialRequestOptionsJSON; medicalId: string; reason: string; hospitalId: string } | null>(null);
+  const affiliations = useQuery({ queryKey: ["affiliations", user?.id], enabled: !!user,
+    queryFn: () => carekeyRequest<Array<{ hospital_id: string; hospital_name: string; status: string }>>("/affiliations/me", user!) });
 
   const passkeys = useQuery({
     queryKey: ["doctor-passkeys", user?.id],
@@ -107,11 +110,12 @@ function EmergencyPage() {
     const clean = (value.match(/CK-[A-Z0-9]{8}/i)?.[0] ?? value).trim().toUpperCase();
     if (!/^CK-[A-Z0-9]{8}$/.test(clean)) return toast.error("Medical ID format is CK-XXXXXXXX");
     if (!user) return toast.error("Your sign-in has expired. Sign in again.");
+    if (!hospitalId) return toast.error("Select the hospital where you are providing care");
     setBusy(true);
     try {
       const result = await carekeyRequest<{ challenge_id: string; options: PublicKeyCredentialRequestOptionsJSON }>("/auth/passkeys/authentication-options", user, { method: "POST" });
       setMedicalId(clean);
-      setPendingAccess({ challengeId: result.challenge_id, options: result.options, medicalId: clean, reason: reasonValue });
+      setPendingAccess({ challengeId: result.challenge_id, options: result.options, medicalId: clean, reason: reasonValue, hospitalId });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not prepare device verification");
     } finally {
@@ -128,6 +132,7 @@ function EmergencyPage() {
         method: "POST",
         body: JSON.stringify({
           reason: pendingAccess.reason,
+          hospital_id: pendingAccess.hospitalId,
           passkey_challenge_id: pendingAccess.challengeId,
           passkey_credential: credential,
         }),
@@ -175,6 +180,7 @@ function EmergencyPage() {
         <div className="grid gap-6 md:grid-cols-2">
           <div className="card-surface space-y-4 p-6">
             <h2 className="font-semibold">Enter Medical ID</h2>
+            <div className="space-y-1.5"><Label>Hospital providing care</Label><Select value={hospitalId} onValueChange={setHospitalId}><SelectTrigger><SelectValue placeholder="Select approved hospital" /></SelectTrigger><SelectContent>{(affiliations.data ?? []).filter((item) => item.status === "approved").map((item) => <SelectItem key={item.hospital_id} value={item.hospital_id}>{item.hospital_name}</SelectItem>)}</SelectContent></Select></div>
             <div className="space-y-1.5">
               <Label htmlFor="mid">Medical ID</Label>
               <Input

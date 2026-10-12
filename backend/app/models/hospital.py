@@ -6,6 +6,7 @@ from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
+from app.utils.account_ids import generate_hospital_code
 
 
 class Hospital(Base):
@@ -13,6 +14,7 @@ class Hospital(Base):
 
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
+    hospital_code: Mapped[str] = mapped_column(String(12), unique=True, nullable=False, default=generate_hospital_code)
     latitude: Mapped[float] = mapped_column(Float, nullable=False)
     longitude: Mapped[float] = mapped_column(Float, nullable=False)
     address: Mapped[str | None] = mapped_column(Text, nullable=True)

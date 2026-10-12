@@ -28,6 +28,7 @@ export const Route = createFileRoute("/admin")({
 
 type AdminUser = {
   id: string;
+  doctor_code: string | null;
   email: string | null;
   full_name: string | null;
   role: "patient" | "doctor" | "hospital" | "hospital_admin" | "admin";
@@ -41,6 +42,7 @@ type AdminUser = {
 type Hospital = {
   id: string;
   name: string;
+  hospital_code: string;
   latitude: number;
   longitude: number;
   address: string | null;
@@ -51,7 +53,7 @@ type Hospital = {
   open_24h: boolean;
 };
 
-type HospitalFields = Omit<Hospital, "id">;
+type HospitalFields = Omit<Hospital, "id" | "hospital_code">;
 type HospitalAccountPayload = {
   hospital_id?: string;
   hospital?: HospitalFields;
@@ -300,13 +302,13 @@ function AdminUserRow({ account, hospitals, onSave, onSetActive }: {
     <div className="card-surface grid gap-3 p-4 md:grid-cols-2">
       <div className="md:col-span-2">
         <p className="font-medium">{account.email ?? "No email"}</p>
-        <p className="text-xs text-muted-foreground">Current role: {account.role}{account.hospital_name ? ` · ${account.hospital_name}` : ""}{account.is_active ? " · active" : " · deactivated"}</p>
+        <p className="text-xs text-muted-foreground">Current role: {account.role}{account.role === "doctor" && account.doctor_code ? ` · ${account.doctor_code}` : ""}{account.hospital_name ? ` · ${account.hospital_name}` : ""}{account.is_active ? " · active" : " · deactivated"}</p>
       </div>
       {editing ? <>
         <div className="space-y-1.5"><Label>Name</Label><Input value={fullName} maxLength={100} onChange={(event) => setFullName(event.target.value)} /></div>
         <div className="space-y-1.5"><Label>Role</Label><select className="h-10 w-full rounded-md border bg-background px-3 text-sm" value={role} onChange={(event) => setRole(event.target.value as "patient" | "doctor" | "hospital" | "hospital_admin")}><option value="patient">Patient</option><option value="doctor">Doctor</option><option value="hospital">Hospital account</option><option value="hospital_admin">Hospital administrator (legacy)</option></select></div>
-        {role !== "patient" ? <div className="space-y-1.5"><Label>Hospital (required)</Label><select className="h-10 w-full rounded-md border bg-background px-3 text-sm" value={hospitalId} onChange={(event) => setHospitalId(event.target.value)} required><option value="">Choose a hospital</option>{hospitals.map((hospital) => <option key={hospital.id} value={hospital.id}>{hospital.name}</option>)}</select></div> : null}
-        {role === "doctor" ? <div className="space-y-1.5"><Label>Organization</Label><Input value={organization} maxLength={120} onChange={(event) => setOrganization(event.target.value)} /></div> : null}
+        {role === "hospital" || role === "hospital_admin" ? <div className="space-y-1.5"><Label>Hospital (required)</Label><select className="h-10 w-full rounded-md border bg-background px-3 text-sm" value={hospitalId} onChange={(event) => setHospitalId(event.target.value)} required><option value="">Choose a hospital</option>{hospitals.map((hospital) => <option key={hospital.id} value={hospital.id}>{hospital.name}</option>)}</select></div> : null}
+        {role === "doctor" ? <p className="text-sm text-muted-foreground">Doctors request hospital affiliations using their Doctor ID; each hospital approves the request.</p> : null}
         <div className="space-y-1.5"><Label>Specialty</Label><Input value={specialty} maxLength={120} onChange={(event) => setSpecialty(event.target.value)} /></div>
         <div className="flex gap-2 md:col-span-2">
         <Button size="sm" onClick={() => { void onSave(account.id, { role, hospital_id: role === "patient" ? null : hospitalId || null, full_name: fullName, organization, specialty }).then((saved) => { if (saved) setEditing(false); }); }}>Save changes</Button>
@@ -365,7 +367,7 @@ function HospitalRow({ hospital, account, onSave, onDelete, onCreateAccount }: {
   ) : (
     <div className="card-surface space-y-3 p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div><p className="font-medium">{hospital.name}</p><p className="text-sm text-muted-foreground">{hospital.address || `${hospital.latitude}, ${hospital.longitude}`}</p></div>
+        <div><p className="font-medium">{hospital.name}</p><p className="text-sm text-muted-foreground">{hospital.hospital_code} · {hospital.address || `${hospital.latitude}, ${hospital.longitude}`}</p></div>
         <div className="flex flex-wrap items-center gap-2">{account ? <span className="text-xs text-muted-foreground">Account: {account.email ?? account.full_name}</span> : <Button size="sm" variant="outline" onClick={() => setCreatingAccount((open) => !open)}>Create hospital account</Button>}<Button size="sm" variant="outline" onClick={() => setEditing(true)}>Edit</Button><Button size="sm" variant="destructive" onClick={() => void onDelete(hospital)}>Delete</Button></div>
       </div>
       {creatingAccount ? <form className="grid gap-3 border-t pt-3 sm:grid-cols-2" onSubmit={(event) => {

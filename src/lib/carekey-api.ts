@@ -19,6 +19,7 @@ export type AppUser = {
   email: string | null;
   is_active: boolean;
   role: AppRole;
+  doctor_code: string | null;
   hospital_id: string | null;
   hospital_name: string | null;
   created_at: string;

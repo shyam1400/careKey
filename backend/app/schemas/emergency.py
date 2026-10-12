@@ -7,6 +7,7 @@ from typing import Any
 
 class EmergencyAccessRequest(BaseModel):
     reason: str = Field(min_length=4, max_length=500)
+    hospital_id: UUID
     passkey_challenge_id: UUID
     passkey_credential: dict[str, Any]
 

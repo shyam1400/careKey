@@ -16,6 +16,7 @@ from app.models.enums import AppRole
 from app.models.profile import Profile
 from app.models.hospital import Hospital
 from app.models.user import User
+from app.utils.account_ids import generate_doctor_code
 from app.schemas.admin import (
     AdminUserResponse,
     AdminUserStatusUpdate,
@@ -143,6 +144,7 @@ def list_users(
             Profile.organization,
             Profile.specialty,
             User.hospital_id,
+            User.doctor_code,
             Hospital.name.label("hospital_name"),
         )
         .outerjoin(Profile, Profile.id == User.id)
@@ -161,6 +163,7 @@ def list_users(
             "organization": row.organization,
             "specialty": row.specialty,
             "hospital_id": row.hospital_id,
+            "doctor_code": row.doctor_code,
             "hospital_name": row.hospital_name,
         }
         for row in rows
@@ -182,7 +185,9 @@ def update_user(
 
     requested_role = AppRole(payload.role)
     selected_hospital_id = payload.hospital_id
-    if requested_role in {AppRole.DOCTOR, AppRole.HOSPITAL, AppRole.HOSPITAL_ADMIN}:
+    if requested_role == AppRole.DOCTOR:
+        selected_hospital_id = None
+    elif requested_role in {AppRole.HOSPITAL, AppRole.HOSPITAL_ADMIN}:
         selected_hospital_id = selected_hospital_id or target.hospital_id
         if selected_hospital_id is None or db.get(Hospital, selected_hospital_id) is None:
             raise HTTPException(status_code=422, detail="Assign a hospital to every doctor and hospital account")
@@ -204,9 +209,14 @@ def update_user(
     for field, value in payload.model_dump(exclude_unset=True).items():
         if field not in {"role", "hospital_id"}:
             setattr(profile, field, value)
-    if requested_role in {AppRole.DOCTOR, AppRole.HOSPITAL, AppRole.HOSPITAL_ADMIN}:
+    if requested_role in {AppRole.HOSPITAL, AppRole.HOSPITAL_ADMIN}:
         assigned_hospital = db.get(Hospital, selected_hospital_id)
         profile.organization = assigned_hospital.name
+    elif requested_role == AppRole.DOCTOR:
+        target.doctor_code = target.doctor_code or generate_doctor_code()
+        profile.organization = None
+    else:
+        profile.organization = None
     db.add(target)
     db.add(profile)
     db.add(
@@ -232,6 +242,7 @@ def update_user(
         "specialty": profile.specialty,
         "hospital_id": target.hospital_id,
         "hospital_name": assigned_hospital.name if assigned_hospital else None,
+        "doctor_code": target.doctor_code,
     }
 
 
@@ -273,4 +284,5 @@ def update_doctor_status(
         "specialty": profile.specialty if profile else None,
         "hospital_id": target.hospital_id,
         "hospital_name": assigned_hospital.name if assigned_hospital else None,
+        "doctor_code": target.doctor_code,
     }

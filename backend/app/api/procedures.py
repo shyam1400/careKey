@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, aliased
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.enums import AppRole
+from app.models.affiliation import HospitalDoctorAffiliation
 from app.models.hospital import Hospital, HospitalProcedure
 from app.models.profile import Profile
 from app.models.user import User
@@ -38,11 +39,13 @@ def list_my_procedures(
     if user.role == AppRole.PATIENT:
         query = query.where(HospitalProcedure.patient_id == user.id)
     elif user.role == AppRole.DOCTOR:
-        if user.hospital_id is None:
-            raise HTTPException(status_code=403, detail="Your doctor account must be assigned to a hospital")
         query = query.where(
             HospitalProcedure.doctor_id == user.id,
-            HospitalProcedure.hospital_id == user.hospital_id,
+            select(HospitalDoctorAffiliation.id).where(
+                HospitalDoctorAffiliation.doctor_id == user.id,
+                HospitalDoctorAffiliation.hospital_id == HospitalProcedure.hospital_id,
+                HospitalDoctorAffiliation.status == "approved",
+            ).exists(),
         )
     else:
         raise HTTPException(status_code=403, detail="Patient or doctor account access is required")

@@ -14,6 +14,7 @@ export type AuthenticatedUser = Pick<User, "email" | "displayName" | "getIdToken
   firebaseUid: string;
   hospitalId: string | null;
   hospitalName: string | null;
+  doctorCode: string | null;
 };
 
 type AuthState = {
@@ -57,6 +58,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         firebaseUid: result.user.firebase_uid,
         hospitalId: result.user.hospital_id,
         hospitalName: result.user.hospital_name,
+        doctorCode: result.user.doctor_code,
         email: user.email,
         displayName: user.displayName,
         getIdToken: (forceRefresh) => user.getIdToken(forceRefresh),

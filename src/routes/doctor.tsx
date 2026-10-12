@@ -6,6 +6,8 @@ import { useAuth } from "@/hooks/useAuth";
 import { RequireRole } from "@/components/RequireRole";
 import { formatDateTime, categoryLabel } from "@/lib/carekey";
 import { MyProcedures } from "@/components/MyProcedures";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 export const Route = createFileRoute("/doctor")({
   head: () => ({
@@ -26,6 +28,28 @@ export const Route = createFileRoute("/doctor")({
 function DoctorPage() {
   const { user } = useAuth();
   const [openConsent, setOpenConsent] = useState<string | null>(null);
+  const [hospitalCode, setHospitalCode] = useState("");
+  const [hospitalMatch, setHospitalMatch] = useState<{ id: string; code: string; name: string } | null>(null);
+  const [affiliationMessage, setAffiliationMessage] = useState("");
+  const affiliations = useQuery({ queryKey: ["affiliations", user?.id], enabled: !!user,
+    queryFn: () => carekeyRequest<Array<{ id: string; hospital_id: string; hospital_name: string; hospital_code: string; status: string; initiated_by: string }>>("/affiliations/me", user!) });
+  async function lookupHospital() {
+    if (!user) return;
+    try { const match = await carekeyRequest<{ id: string; code: string; name: string }>(`/affiliations/lookup/${encodeURIComponent(hospitalCode.trim().toUpperCase())}`, user);
+      setHospitalMatch(match); setAffiliationMessage("");
+    } catch (error) { setHospitalMatch(null); setAffiliationMessage(error instanceof Error ? error.message : "Hospital not found"); }
+  }
+  async function requestHospital() {
+    if (!user) return;
+    try { await carekeyRequest("/affiliations/request", user, { method: "POST", body: JSON.stringify({ code: hospitalMatch?.code }) });
+      setHospitalCode(""); setHospitalMatch(null); setAffiliationMessage("Request sent to the hospital for approval."); await affiliations.refetch();
+    } catch (error) { setAffiliationMessage(error instanceof Error ? error.message : "Could not send request"); }
+  }
+  async function decide(id: string, approve: boolean) {
+    if (!user) return;
+    try { await carekeyRequest(`/affiliations/${id}/decision`, user, { method: "POST", body: JSON.stringify({ approve }) }); await affiliations.refetch(); }
+    catch (error) { setAffiliationMessage(error instanceof Error ? error.message : "Could not update request"); }
+  }
   const { data, isLoading, error } = useQuery({
     queryKey: ["doctor-consents", user?.id],
     enabled: !!user,
@@ -39,9 +63,18 @@ function DoctorPage() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <div><h1 className="text-2xl font-semibold">My patients</h1><p className="text-sm text-muted-foreground">{user?.hospitalName ? `Doctor at ${user.hospitalName}` : "Your account needs a hospital assignment"}</p></div>
+        <div><h1 className="text-2xl font-semibold">My patients</h1><p className="text-sm text-muted-foreground">Doctor ID: {user?.doctorCode ?? "Being assigned"}</p></div>
         <Link to="/emergency" className="text-sm text-primary underline">Emergency mode</Link>
       </div>
+      <section className="card-surface space-y-3 p-5">
+        <div><h2 className="text-lg font-semibold">Hospital affiliations</h2><p className="text-sm text-muted-foreground">Each hospital must approve your request before it appears as an active affiliation.</p></div>
+        <div className="flex gap-2"><Input aria-label="Hospital ID" placeholder="HOS-XXXXXXXX" value={hospitalCode} onChange={(event) => { setHospitalCode(event.target.value.toUpperCase()); setHospitalMatch(null); }} /><Button variant="outline" onClick={() => void lookupHospital()} disabled={!/^HOS-[0-9A-F]{8}$/.test(hospitalCode)}>Find</Button></div>
+        {hospitalMatch ? <div className="flex items-center justify-between gap-2 rounded-md border p-3 text-sm"><span>{hospitalMatch.name} · {hospitalMatch.code}</span><Button size="sm" onClick={() => void requestHospital()}>Request affiliation</Button></div> : null}
+        {affiliationMessage ? <p role="status" className="text-sm text-muted-foreground">{affiliationMessage}</p> : null}
+        {affiliations.data?.map((item) => <div key={item.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-3"><p className="text-sm"><strong>{item.hospital_name}</strong> · {item.hospital_code} · {item.status.replaceAll("_", " ")}</p>
+          {item.status === "pending_doctor" && item.initiated_by === "hospital" ? <div className="flex gap-2"><Button size="sm" onClick={() => void decide(item.id, true)}>Approve</Button><Button size="sm" variant="outline" onClick={() => void decide(item.id, false)}>Deny</Button></div> : null}</div>)}
+        {!affiliations.data?.length ? <p className="text-sm text-muted-foreground">No hospital affiliations yet.</p> : null}
+      </section>
       <MyProcedures audience="doctor" />
       {isLoading ? (
         <p className="text-sm text-muted-foreground">Loading…</p>

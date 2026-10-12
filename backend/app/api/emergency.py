@@ -6,6 +6,7 @@ from app.core.database import get_db
 from app.core.config import get_settings
 from app.core.security import get_current_user
 from app.models.audit import AccessLog
+from app.models.affiliation import HospitalDoctorAffiliation
 from app.models.enums import AppRole
 from app.models.hospital import Hospital
 from app.models.patient import Patient
@@ -60,10 +61,11 @@ def _audit(
     *,
     patient: Patient | None,
     success: bool,
+    hospital_id=None,
     verification_result: str = "firebase_id_token",
 ) -> None:
     profile = _provider_profile(db, user)
-    hospital = db.get(Hospital, user.hospital_id) if user.hospital_id else None
+    hospital = db.get(Hospital, hospital_id) if hospital_id else None
     db.add(
         AccessLog(
             patient_id=patient.id if patient else None,
@@ -92,9 +94,14 @@ def read_emergency_profile(
     user: User = Depends(get_current_user),
 ) -> EmergencyProfileResponse:
     reason = payload.reason.strip()
-    if user.role != AppRole.DOCTOR or user.hospital_id is None:
+    affiliation = db.scalar(select(HospitalDoctorAffiliation).where(
+        HospitalDoctorAffiliation.doctor_id == user.id,
+        HospitalDoctorAffiliation.hospital_id == payload.hospital_id,
+        HospitalDoctorAffiliation.status == "approved",
+    )) if user.role == AppRole.DOCTOR and user.is_active else None
+    if affiliation is None:
         _audit(db, user, reason, medical_id, patient=None, success=False)
-        raise HTTPException(status_code=403, detail="An active hospital assignment is required for doctor access")
+        raise HTTPException(status_code=403, detail="An approved affiliation with the selected hospital is required")
 
     try:
         verify_emergency_assertion(
@@ -111,6 +118,7 @@ def read_emergency_profile(
             medical_id,
             patient=None,
             success=False,
+            hospital_id=payload.hospital_id,
             verification_result="webauthn_failed",
         )
         raise
@@ -124,6 +132,7 @@ def read_emergency_profile(
             medical_id,
             patient=None,
             success=False,
+            hospital_id=payload.hospital_id,
             verification_result="webauthn_user_verified",
         )
         raise HTTPException(status_code=404, detail="Patient not found")
@@ -135,6 +144,7 @@ def read_emergency_profile(
         medical_id,
         patient=patient,
         success=True,
+        hospital_id=payload.hospital_id,
         verification_result="webauthn_user_verified",
     )
     if patient.emergency_contact_alerts_enabled and patient.emergency_contact_name and patient.emergency_contact_phone:

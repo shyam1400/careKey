@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.audit import AccessLog
+from app.models.affiliation import HospitalDoctorAffiliation
 from app.models.enums import AppRole
 from app.models.hospital import Hospital, HospitalProcedure
 from app.models.patient import Patient
@@ -75,7 +76,8 @@ def my_hospital(
 ) -> dict[str, Any]:
     hospital = _hospital_for(user, db)
     profile = db.get(Profile, user.id)
-    return {"id": str(hospital.id), "name": hospital.name, "admin_name": profile.full_name if profile else user.email}
+    return {"id": str(hospital.id), "name": hospital.name, "hospital_code": hospital.hospital_code,
+            "admin_name": profile.full_name if profile else user.email}
 
 
 @router.get("/dashboard")
@@ -84,16 +86,16 @@ def hospital_dashboard(
 ) -> dict[str, Any]:
     hospital = _hospital_for(user, db)
     doctors = db.scalar(
-        select(func.count()).select_from(User).where(
-            User.hospital_id == hospital.id, User.role == AppRole.DOCTOR, User.is_active.is_(True)
-        )
+        select(func.count()).select_from(HospitalDoctorAffiliation)
+        .join(User, User.id == HospitalDoctorAffiliation.doctor_id)
+        .where(HospitalDoctorAffiliation.hospital_id == hospital.id,
+               HospitalDoctorAffiliation.status == "approved", User.role == AppRole.DOCTOR,
+               User.is_active.is_(True))
     ) or 0
     patients = db.scalar(
         select(func.count()).select_from(Patient).where(or_(
             select(AccessLog.id).where(AccessLog.hospital_id == hospital.id,
                                       AccessLog.patient_id == Patient.id).exists(),
-            select(AccessLog.id).join(User, User.id == AccessLog.provider_id).where(
-                User.hospital_id == hospital.id, AccessLog.patient_id == Patient.id).exists(),
             select(HospitalProcedure.id).where(HospitalProcedure.hospital_id == hospital.id,
                                                HospitalProcedure.patient_id == Patient.id).exists(),
         ))
@@ -113,31 +115,16 @@ def hospital_doctors(
 ) -> list[dict[str, Any]]:
     hospital = _hospital_for(user, db)
     rows = db.execute(
-        select(User.id, User.email, User.is_active, Profile.full_name, Profile.specialty)
+        select(User.id, User.email, User.doctor_code, User.is_active, Profile.full_name, Profile.specialty)
         .join(Profile, Profile.id == User.id, isouter=True)
-        .where(User.hospital_id == hospital.id, User.role == AppRole.DOCTOR)
+        .join(HospitalDoctorAffiliation, HospitalDoctorAffiliation.doctor_id == User.id)
+        .where(HospitalDoctorAffiliation.hospital_id == hospital.id,
+               HospitalDoctorAffiliation.status == "approved", User.role == AppRole.DOCTOR)
         .order_by(Profile.full_name, User.email)
     ).all()
-    return [{"id": row.id, "email": row.email, "is_active": row.is_active,
+    return [{"id": row.id, "email": row.email, "doctor_code": row.doctor_code, "is_active": row.is_active,
              "full_name": row.full_name or row.email or "Doctor", "specialty": row.specialty}
             for row in rows]
-
-
-@router.patch("/doctors/{doctor_id}/status")
-def update_doctor_status(
-    doctor_id: UUID,
-    is_active: bool,
-    db: Session = Depends(get_db), user: User = Depends(get_current_user)
-) -> dict[str, Any]:
-    hospital = _hospital_for(user, db)
-    doctor = db.scalar(select(User).where(
-        User.id == doctor_id, User.hospital_id == hospital.id, User.role == AppRole.DOCTOR
-    ))
-    if doctor is None:
-        raise HTTPException(status_code=404, detail="Doctor not found in this hospital")
-    doctor.is_active = is_active
-    db.commit()
-    return {"id": str(doctor.id), "is_active": doctor.is_active}
 
 
 @router.patch("/doctors/{doctor_id}")
@@ -147,8 +134,9 @@ def update_doctor_profile(
     db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ) -> dict[str, Any]:
     hospital = _hospital_for(user, db)
-    doctor = db.scalar(select(User).where(
-        User.id == doctor_id, User.hospital_id == hospital.id, User.role == AppRole.DOCTOR
+    doctor = db.scalar(select(User).join(HospitalDoctorAffiliation, HospitalDoctorAffiliation.doctor_id == User.id).where(
+        User.id == doctor_id, HospitalDoctorAffiliation.hospital_id == hospital.id,
+        HospitalDoctorAffiliation.status == "approved", User.role == AppRole.DOCTOR
     ))
     if doctor is None:
         raise HTTPException(status_code=404, detail="Doctor not found in this hospital")
@@ -158,7 +146,12 @@ def update_doctor_profile(
         db.add(profile)
     profile.full_name = payload.full_name.strip()
     profile.specialty = payload.specialty.strip() if payload.specialty else None
-    profile.organization = hospital.name
+    approved_names = list(db.scalars(
+        select(Hospital.name).join(HospitalDoctorAffiliation, HospitalDoctorAffiliation.hospital_id == Hospital.id)
+        .where(HospitalDoctorAffiliation.doctor_id == doctor.id,
+               HospitalDoctorAffiliation.status == "approved").order_by(Hospital.name)
+    ).all())
+    profile.organization = ", ".join(approved_names) or None
     db.commit()
     return {"id": str(doctor.id), "full_name": profile.full_name, "specialty": profile.specialty}
 
@@ -173,8 +166,6 @@ def hospital_patients(
         .join(Profile, Profile.id == Patient.id)
         .where(or_(
             select(AccessLog.id).where(AccessLog.hospital_id == hospital.id, AccessLog.patient_id == Patient.id).exists(),
-            select(AccessLog.id).join(User, User.id == AccessLog.provider_id).where(
-                User.hospital_id == hospital.id, AccessLog.patient_id == Patient.id).exists(),
             select(HospitalProcedure.id).where(HospitalProcedure.hospital_id == hospital.id,
                                                HospitalProcedure.patient_id == Patient.id).exists(),
         ))
@@ -221,8 +212,11 @@ def create_procedure(
     patient = db.get(Patient, payload.patient_id)
     if patient is None:
         raise HTTPException(status_code=404, detail="Patient not found")
-    doctor = db.get(User, payload.doctor_id)
-    if doctor is None or doctor.role != AppRole.DOCTOR or doctor.hospital_id != hospital.id or not doctor.is_active:
+    doctor = db.scalar(select(User).join(HospitalDoctorAffiliation, HospitalDoctorAffiliation.doctor_id == User.id).where(
+        User.id == payload.doctor_id, HospitalDoctorAffiliation.hospital_id == hospital.id,
+        HospitalDoctorAffiliation.status == "approved", User.role == AppRole.DOCTOR, User.is_active.is_(True)
+    ))
+    if doctor is None:
         raise HTTPException(status_code=422, detail="Choose an active doctor assigned to this hospital")
     row = HospitalProcedure(hospital_id=hospital.id, patient_id=patient.id, doctor_id=doctor.id,
                             name=payload.name.strip(), notes=payload.notes)
@@ -246,8 +240,11 @@ def update_procedure(
         raise HTTPException(status_code=404, detail="Procedure not found")
     changes = payload.model_dump(exclude_unset=True)
     if "doctor_id" in changes:
-        doctor = db.get(User, changes["doctor_id"])
-        if doctor is None or doctor.role != AppRole.DOCTOR or doctor.hospital_id != hospital.id or not doctor.is_active:
+        doctor = db.scalar(select(User).join(HospitalDoctorAffiliation, HospitalDoctorAffiliation.doctor_id == User.id).where(
+            User.id == changes["doctor_id"], HospitalDoctorAffiliation.hospital_id == hospital.id,
+            HospitalDoctorAffiliation.status == "approved", User.role == AppRole.DOCTOR, User.is_active.is_(True)
+        ))
+        if doctor is None:
             raise HTTPException(status_code=422, detail="Choose an active doctor assigned to this hospital")
     if "name" in changes and changes["name"] is not None:
         changes["name"] = changes["name"].strip()
@@ -272,7 +269,12 @@ def hospital_access_logs(
         .outerjoin(Profile, Profile.id == AccessLog.patient_id)
         .outerjoin(User, User.id == AccessLog.provider_id)
         .outerjoin(Hospital, Hospital.id == func.coalesce(AccessLog.hospital_id, User.hospital_id))
-        .where(or_(AccessLog.hospital_id == hospital.id, User.hospital_id == hospital.id))
+        .where(or_(AccessLog.hospital_id == hospital.id,
+                   select(HospitalDoctorAffiliation.id).where(
+                       HospitalDoctorAffiliation.doctor_id == User.id,
+                       HospitalDoctorAffiliation.hospital_id == hospital.id,
+                       HospitalDoctorAffiliation.status == "approved",
+                   ).exists()))
         .order_by(AccessLog.created_at.desc()).limit(limit)
     ).all()
     return [{"id": log.id, "patient_name": patient_name, "patient_id": log.patient_id,
