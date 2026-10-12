@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import re
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
@@ -27,6 +28,9 @@ class _Db:
 
     def scalars(self, _statement):
         return _Result(self.hospitals)
+
+    def scalar(self, _statement):
+        return None
 
     def add(self, value):
         if isinstance(value, Hospital):
@@ -69,6 +73,7 @@ def _request(db, user, method, path, **kwargs):
 def test_hospital_directory_can_be_filtered():
     hospital = Hospital(
         id=uuid4(), name="City Emergency", latitude=12.9, longitude=77.6,
+        hospital_code="HOS-1234ABCD",
         emergency=True, trauma=True, ambulance=True, open_24h=True,
     )
     response = _request(_Db([hospital]), None, "get", "/hospitals?trauma=true")
@@ -97,12 +102,14 @@ def test_admin_can_add_hospital():
     assert response.status_code == 201
     assert response.json()["name"] == "City Emergency"
     assert response.json()["trauma"] is True
+    assert re.fullmatch(r"HOS-[A-F0-9]{8}", response.json()["hospital_code"])
 
 
 def test_admin_can_edit_hospital_and_audit_change():
     admin = _user(AppRole.ADMIN)
     hospital = Hospital(
         id=uuid4(), name="Old Name", latitude=12.9, longitude=77.6,
+        hospital_code="HOS-1234ABCD",
         address="Old address", emergency=True, trauma=False, ambulance=True, open_24h=True,
     )
     db = _Db([hospital])
@@ -118,7 +125,7 @@ def test_admin_can_edit_hospital_and_audit_change():
 
 def test_admin_can_delete_hospital_and_audit_change():
     admin = _user(AppRole.ADMIN)
-    hospital = Hospital(id=uuid4(), name="Demo Hospital", latitude=12.9, longitude=77.6)
+    hospital = Hospital(id=uuid4(), name="Demo Hospital", hospital_code="HOS-1234ABCD", latitude=12.9, longitude=77.6)
     db = _Db([hospital])
     response = _request(db, admin, "delete", f"/hospitals/{hospital.id}")
     assert response.status_code == 204
@@ -128,7 +135,7 @@ def test_admin_can_delete_hospital_and_audit_change():
 
 def test_only_admin_can_edit_or_delete_hospitals():
     doctor = _user(AppRole.DOCTOR)
-    hospital = Hospital(id=uuid4(), name="Demo Hospital", latitude=12.9, longitude=77.6)
+    hospital = Hospital(id=uuid4(), name="Demo Hospital", hospital_code="HOS-1234ABCD", latitude=12.9, longitude=77.6)
     db = _Db([hospital])
     update = _request(db, doctor, "patch", f"/hospitals/{hospital.id}", json={"name": "Changed"})
     delete = _request(db, doctor, "delete", f"/hospitals/{hospital.id}")

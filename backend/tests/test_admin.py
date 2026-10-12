@@ -86,6 +86,8 @@ def test_admin_can_provision_doctor_and_profile():
     assert response.json()["role"] == "doctor"
     assert response.json()["full_name"] == "Demo Doctor"
     assert response.json()["specialty"] == "General Practice"
+    assert response.json()["doctor_code"].startswith("DOC-")
+    assert len(response.json()["doctor_code"]) == 12
     assert db.profiles[target.id].firebase_uid == target.firebase_uid
     audit_events = [item for item in db.added if isinstance(item, AccessLog)]
     assert len(audit_events) == 1

@@ -5,7 +5,7 @@ from app.models.user import User
 def test_user_table_columns():
     columns = {column.name for column in User.__table__.columns}
     assert columns == {
-        "id", "firebase_uid", "email", "is_active", "role", "created_at", "updated_at",
+        "id", "firebase_uid", "email", "doctor_code", "hospital_id", "is_active", "role", "created_at", "updated_at",
         "last_passkey_registration_auth_time",
     }
 
@@ -23,5 +23,5 @@ def test_user_is_active_defaults_to_true_and_is_required():
 
 
 def test_user_roles_are_limited():
-    assert {role.value for role in AppRole} == {"patient", "doctor", "admin"}
+    assert {role.value for role in AppRole} == {"patient", "doctor", "hospital", "hospital_admin", "admin"}
     assert User.__table__.c.role.nullable is False

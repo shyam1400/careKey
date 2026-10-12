@@ -13,6 +13,8 @@ from app.models.enums import AppRole, ConsentStatus
 from app.models.patient import Patient
 from app.models.profile import Profile
 from app.models.user import User
+from app.models.affiliation import HospitalDoctorAffiliation
+from app.models.hospital import Hospital
 from app.models.records import Allergy
 from app.schemas.consent import ConsentCreate
 from pydantic import ValidationError
@@ -29,11 +31,21 @@ class _Result:
 class _Db:
     def __init__(self, patient, doctor, profile=None, consent=None):
         self.patient, self.doctor, self.profile, self.consent = patient, doctor, profile, consent
+        self.hospital = Hospital(id=uuid4(), name="City Hospital", hospital_code="HOS-1234ABCD", latitude=12.9, longitude=77.6)
+        self.affiliation = HospitalDoctorAffiliation(
+            id=uuid4(), doctor_id=doctor.id, hospital_id=self.hospital.id,
+            status="approved", initiated_by="migration",
+        ) if doctor is not None and doctor.role == AppRole.DOCTOR else None
         self.added = []
 
     def scalar(self, statement):
         entity = statement.column_descriptions[0]["entity"]
-        return {Patient: self.patient, User: self.doctor, Profile: self.profile, Consent: self.consent}.get(entity)
+        return {Patient: self.patient, User: self.doctor, Profile: self.profile, Consent: self.consent,
+                Hospital: self.hospital if self.affiliation else None}.get(entity)
+
+    def get(self, model, key):
+        return {Patient: self.patient, User: self.doctor, Profile: self.profile,
+                Hospital: self.hospital}.get(model)
 
     def scalars(self, _statement):
         return _Result([self.consent] if self.consent else [])

@@ -52,6 +52,7 @@ def create_hospital_account(
             raise HTTPException(status_code=409, detail="This hospital already has a sign-in account")
     else:
         hospital = Hospital(**payload.hospital.model_dump())
+        hospital.hospital_code = hospital.hospital_code or generate_hospital_code()
         db.add(hospital)
         db.flush()
 

@@ -11,6 +11,8 @@ from app.models.enums import AppRole
 from app.models.patient import Patient
 from app.models.profile import Profile
 from app.models.user import User
+from app.models.affiliation import HospitalDoctorAffiliation
+from app.models.hospital import Hospital
 
 
 class _Db:
@@ -18,10 +20,24 @@ class _Db:
         self.patient = patient
         self.profile = None
         self.logs = []
+        self.hospital = Hospital(id=uuid4(), name="City Hospital", hospital_code="HOS-1234ABCD", latitude=12.9, longitude=77.6)
+        self.affiliation = HospitalDoctorAffiliation(
+            id=uuid4(), doctor_id=uuid4(), hospital_id=self.hospital.id,
+            status="approved", initiated_by="migration",
+        )
 
     def scalar(self, statement):
         entity = statement.column_descriptions[0]["entity"]
-        return self.patient if entity is Patient else self.profile
+        if entity is Patient:
+            return self.patient
+        if entity is HospitalDoctorAffiliation:
+            return self.affiliation
+        return self.profile
+
+    def get(self, model, key):
+        if model is Hospital:
+            return self.hospital if key == self.hospital.id else None
+        return self.profile
 
     def add(self, value):
         if isinstance(value, Profile):
@@ -50,7 +66,8 @@ def _call(db, user, medical_id, reason="Emergency assessment"):
         with TestClient(app) as client:
             return client.post(
                 f"/emergency/{medical_id}",
-                json={"reason": reason, "passkey_challenge_id": str(uuid4()), "passkey_credential": {"id": "demo"}},
+                json={"reason": reason, "hospital_id": str(db.hospital.id),
+                      "passkey_challenge_id": str(uuid4()), "passkey_credential": {"id": "demo"}},
             )
     finally:
         app.dependency_overrides.clear()

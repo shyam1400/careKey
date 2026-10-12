@@ -2,7 +2,7 @@ from datetime import date, datetime
 from uuid import UUID
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class PatientCreate(BaseModel):
@@ -52,6 +52,11 @@ class PatientResponse(BaseModel):
     rh_factor: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
+
+    @field_validator("emergency_contact_alerts_enabled", mode="before")
+    @classmethod
+    def default_alert_setting(cls, value):
+        return False if value is None else value
 
     @classmethod
     def from_orm(cls, obj):

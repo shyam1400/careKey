@@ -10,6 +10,7 @@ from app.models.enums import AppRole
 from app.models.hospital import Hospital
 from app.models.hospital import HospitalProcedure
 from app.models.user import User
+from app.utils.account_ids import generate_hospital_code
 from app.schemas.hospital import HospitalCreate, HospitalResponse, HospitalUpdate
 
 router = APIRouter(prefix="/hospitals", tags=["hospitals"])
@@ -47,6 +48,7 @@ def create_hospital(
     if user.role != AppRole.ADMIN:
         raise HTTPException(status_code=403, detail="Insufficient permissions")
     hospital = Hospital(**payload.model_dump())
+    hospital.hospital_code = hospital.hospital_code or generate_hospital_code()
     db.add(hospital)
     db.add(
         AccessLog(
