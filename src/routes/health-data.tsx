@@ -31,6 +31,10 @@ type FamilyHistory = {
   id: string; relationship_to_patient: string; condition: string; age_at_diagnosis: number | null;
   diagnosis_date: string | null; source_type: string; verification_status: string;
 };
+type PatientRiskFactor = {
+  id: string; factor_key: "current_smoking" | "diabetes_status"; value: boolean;
+  observed_at: string; source_type: string; verification_status: string;
+};
 type ExtractionDetail = {
   id: string; status: string; candidate_count: number;
   candidates: Array<{ id: string; measurement_type: string; value: string; unit: string; source_page: number; review_status: string }>;
@@ -58,6 +62,9 @@ function HealthDataPage() {
   const [reportId, setReportId] = useState("");
   const [extractionId, setExtractionId] = useState("");
   const [candidateDates, setCandidateDates] = useState<Record<string, string>>({});
+  const [factorKey, setFactorKey] = useState<PatientRiskFactor["factor_key"]>("current_smoking");
+  const [factorValue, setFactorValue] = useState("false");
+  const [factorObservedAt, setFactorObservedAt] = useState("");
 
   const measurements = useQuery({
     queryKey: ["health-measurements", user?.id], enabled: !!user,
@@ -66,6 +73,10 @@ function HealthDataPage() {
   const familyHistory = useQuery({
     queryKey: ["family-history", user?.id], enabled: !!user,
     queryFn: () => carekeyRequest<FamilyHistory[]>("/health-data/family-history", user!),
+  });
+  const riskFactors = useQuery({
+    queryKey: ["patient-risk-factors", user?.id], enabled: !!user,
+    queryFn: () => carekeyRequest<PatientRiskFactor[]>("/health-data/risk-factors", user!),
   });
   const documents = useQuery({
     queryKey: ["documents", user?.id], enabled: !!user,
@@ -118,6 +129,39 @@ function HealthDataPage() {
     finally { setBusy(false); }
   }
 
+  async function addRiskFactor(event: React.FormEvent) {
+    event.preventDefault();
+    if (!user || !factorObservedAt) return toast.error("Enter when this information was true");
+    setBusy(true);
+    try {
+      await carekeyRequest("/health-data/risk-factors", user, { method: "POST", body: JSON.stringify({
+        factor_key: factorKey, value: factorValue === "true", observed_at: new Date(factorObservedAt).toISOString(),
+        source_type: "patient_reported",
+      }) });
+      await qc.invalidateQueries({ queryKey: ["patient-risk-factors", user.id] });
+      toast.success("Information saved. Confirm it below before it can be used in an assessment.");
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not save this information"); }
+    finally { setBusy(false); }
+  }
+
+  async function verifyRiskFactor(id: string) {
+    if (!user) return;
+    try {
+      await carekeyRequest(`/health-data/risk-factors/${id}/verify`, user, { method: "POST" });
+      await qc.invalidateQueries({ queryKey: ["patient-risk-factors", user.id] });
+      toast.success("Information confirmed");
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not confirm information"); }
+  }
+
+  async function verifyMeasurement(id: string) {
+    if (!user) return;
+    try {
+      await carekeyRequest(`/health-data/measurements/${id}/verify`, user, { method: "POST" });
+      await qc.invalidateQueries({ queryKey: ["health-measurements", user.id] });
+      toast.success("Measurement confirmed");
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not confirm measurement"); }
+  }
+
   async function addFamilyHistory(event: React.FormEvent) {
     event.preventDefault();
     if (!user || !condition.trim()) return toast.error("Enter a condition");
@@ -147,6 +191,20 @@ function HealthDataPage() {
     <PageHeading title="Health data" description="Record measurements and family history with dates and source details. Entries remain unverified until confirmed." />
     <div className="grid gap-6 lg:grid-cols-2">
       <section className="card-surface space-y-4 p-5">
+        <div className="space-y-3 rounded-md border p-4">
+          <h2 className="font-semibold">WHO cardiovascular chart inputs</h2>
+          <p className="text-xs text-muted-foreground">Record current smoking and any history of diabetes. CareKey only uses the latest entry after you confirm it. Patient confirmation records your review; it is not independent clinical verification.</p>
+          <form className="grid gap-3 sm:grid-cols-2" onSubmit={addRiskFactor}>
+            <div className="space-y-1.5"><Label>Information</Label><Select value={factorKey} onValueChange={(v) => setFactorKey(v as PatientRiskFactor["factor_key"])}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="current_smoking">Current smoking</SelectItem><SelectItem value="diabetes_status">Diabetes status</SelectItem></SelectContent></Select></div>
+            <div className="space-y-1.5"><Label>{factorKey === "current_smoking" ? "Currently smoking?" : "Have a history of diabetes?"}</Label><Select value={factorValue} onValueChange={setFactorValue}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="true">Yes</SelectItem><SelectItem value="false">No</SelectItem></SelectContent></Select></div>
+            <div className="space-y-1.5 sm:col-span-2"><Label>Date and time this status was true</Label><Input required type="datetime-local" value={factorObservedAt} onChange={(e) => setFactorObservedAt(e.target.value)} /></div>
+            <Button type="submit" disabled={busy}>Save status</Button>
+          </form>
+          <div className="divide-y rounded-md border">{(riskFactors.data ?? []).map((row) => <div key={row.id} className="flex flex-wrap items-center justify-between gap-2 p-3 text-sm">
+            <span>{row.factor_key === "current_smoking" ? "Current smoking" : "Diabetes"}: <strong>{row.value ? "Yes" : "No"}</strong><span className="block text-xs text-muted-foreground">{new Date(row.observed_at).toLocaleString()} · {row.source_type.replaceAll("_", " ")}</span></span>
+            <div className="flex items-center gap-2"><Badge variant="outline">{row.verification_status}</Badge>{row.verification_status === "unverified" ? <Button size="sm" variant="outline" onClick={() => void verifyRiskFactor(row.id)}>Confirm</Button> : null}<Button size="sm" variant="ghost" onClick={() => void remove("/health-data/risk-factors", row.id, "patient-risk-factors")}>Delete</Button></div>
+          </div>)}{!riskFactors.data?.length ? <p className="p-3 text-xs text-muted-foreground">No smoking or diabetes status recorded.</p> : null}</div>
+        </div>
         <h2 className="font-semibold">Add a measurement</h2>
         <form className="space-y-3" onSubmit={addMeasurement}>
           <div className="space-y-1.5"><Label>Measurement</Label><Select value={type} onValueChange={(next) => {
@@ -161,7 +219,7 @@ function HealthDataPage() {
         </form>
         <div className="divide-y rounded-md border">{(measurements.data ?? []).map((row) => <div key={row.id} className="flex items-center justify-between gap-3 p-3 text-sm">
           <span>{row.measurement_type.replaceAll("_", " ")}: <strong>{row.value} {row.unit}</strong><span className="block text-xs text-muted-foreground">{new Date(row.observed_at).toLocaleString()} · {row.source_type.replaceAll("_", " ")}</span></span>
-          <div className="flex items-center gap-2"><Badge variant="outline">{row.verification_status}</Badge><Button size="sm" variant="ghost" onClick={() => void remove("/health-data/measurements", row.id, "health-measurements")}>Delete</Button></div>
+          <div className="flex items-center gap-2"><Badge variant="outline">{row.verification_status}</Badge>{row.verification_status === "unverified" ? <Button size="sm" variant="outline" onClick={() => void verifyMeasurement(row.id)}>Confirm</Button> : null}<Button size="sm" variant="ghost" onClick={() => void remove("/health-data/measurements", row.id, "health-measurements")}>Delete</Button></div>
         </div>)}{!measurements.data?.length ? <p className="p-4 text-sm text-muted-foreground">No measurements saved yet.</p> : null}</div>
         <div className="space-y-3 rounded-md border p-4">
           <h3 className="text-sm font-semibold">Extract lab values from a report</h3>

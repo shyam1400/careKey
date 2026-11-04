@@ -30,6 +30,8 @@ class HealthMeasurement(Base):
     source_type: Mapped[str] = mapped_column(String(24), nullable=False)
     source_document_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("documents.id", ondelete="SET NULL"), nullable=True)
     verification_status: Mapped[str] = mapped_column(String(16), nullable=False, default="unverified", server_default="unverified")
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    verified_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("profiles.id", ondelete="SET NULL"), nullable=True)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
@@ -57,6 +59,27 @@ class FamilyHistory(Base):
 
     patient: Mapped["Patient"] = relationship()
     source_document: Mapped["Document | None"] = relationship()
+
+
+class PatientRiskFactor(Base):
+    """Patient-reported, timestamped values used as risk model inputs."""
+    __tablename__ = "patient_risk_factors"
+    __table_args__ = (
+        CheckConstraint("factor_key IN ('current_smoking', 'diabetes_status')", name="valid_risk_factor_key"),
+        CheckConstraint("verification_status IN ('unverified', 'verified', 'rejected')", name="valid_risk_factor_verification_status"),
+    )
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    patient_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), ForeignKey("patients.id", ondelete="CASCADE"), nullable=False, index=True)
+    factor_key: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    value: Mapped[bool] = mapped_column(nullable=False)
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    source_type: Mapped[str] = mapped_column(String(24), nullable=False, default="patient_reported", server_default="patient_reported")
+    source_document_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("documents.id", ondelete="SET NULL"), nullable=True)
+    verification_status: Mapped[str] = mapped_column(String(16), nullable=False, default="unverified", server_default="unverified")
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    verified_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("profiles.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
 class ReportExtraction(Base):

@@ -1,12 +1,9 @@
-"""Disease-model catalog and plugin interface.
-
-The catalog intentionally separates clinical eligibility from licensing and software
-availability. No calculator is registered until its implementation and usage rights
-have been confirmed.
-"""
+"""Disease-model catalog and calculator plugin interface."""
 
 from dataclasses import dataclass
 from typing import Any, Callable
+
+from app.services.who_cvd_2019 import WHO_CHART_SOURCE, WHO_CHART_VERSION, lookup_who_south_asia
 
 
 @dataclass(frozen=True)
@@ -39,6 +36,21 @@ Calculator = Callable[[dict[str, Any]], AssessmentOutput]
 
 
 TOOLS: dict[str, AssessmentTool] = {
+    "who_2019_south_asia_cvd": AssessmentTool(
+        key="who_2019_south_asia_cvd", name="WHO 2019 South Asia cardiovascular risk chart",
+        category="cardiovascular", version=WHO_CHART_VERSION,
+        intended_use="Experimental 10-year cardiovascular risk category for health discussions; not diagnosis",
+        validated_population="Chart population in South Asia (Bangladesh, Bhutan, India, Nepal, Pakistan), ages 40–74",
+        required_inputs=("age", "sex", "current_smoking", "diabetes_status", "systolic_blood_pressure", "total_cholesterol"),
+        limitations=(
+            "Uses published chart bins and reports only the chart's risk category.",
+            "Not independently validated for CareKey users or specifically validated for Indian patients.",
+            "Does not include family history, treatment, HDL, or other clinical factors; not for people with established cardiovascular disease.",
+        ),
+        source_url=WHO_CHART_SOURCE,
+        license_status="published_who_chart_attributed",
+        availability="enabled",
+    ),
     "prevent_cvd": AssessmentTool(
         key="prevent_cvd", name="AHA PREVENT CVD", category="cardiovascular",
         version="2026-10-14", intended_use="Clinician-patient primary prevention discussion",
@@ -77,7 +89,37 @@ TOOLS: dict[str, AssessmentTool] = {
     ),
 }
 
-CALCULATORS: dict[str, Calculator] = {}
+def _who_south_asia_calculator(inputs: dict[str, Any]) -> AssessmentOutput:
+    cell = lookup_who_south_asia(
+        age=inputs["age"], sex=inputs["sex"], smoking=inputs["smoking"],
+        diabetes=inputs["diabetes"], sbp_mmhg=inputs["systolic_blood_pressure"],
+        cholesterol_mmol_l=inputs["total_cholesterol_mmol_l"],
+    )
+    # Only the official categorical band is a user-facing result. The integer
+    # chart value is retained in the immutable input snapshot for traceability.
+    result = {
+        "risk_category": cell["risk_category"],
+        "time_horizon": "10 years",
+        "method": "WHO 2019 South Asia laboratory-based chart lookup",
+    }
+    factors = [
+        {"label": "Chart input: age band", "value": cell["age_band"]},
+        {"label": "Chart input: sex", "value": cell["sex"]},
+        {"label": "Chart input: current smoking", "value": "yes" if cell["current_smoker"] else "no"},
+        {"label": "Chart input: diabetes", "value": "yes" if cell["diabetes"] else "no"},
+        {"label": "Chart input: systolic blood pressure band", "value": cell["systolic_blood_pressure_band"] + " mmHg"},
+        {"label": "Chart input: total cholesterol band", "value": cell["cholesterol_band"] + " mmol/L"},
+    ]
+    return AssessmentOutput(
+        status="complete", result=result, contributing_factors=factors,
+        missing_information=[],
+        source_references=[{"title": "WHO 2019 South Asia laboratory-based cardiovascular risk chart", "url": WHO_CHART_SOURCE, "version": WHO_CHART_VERSION}],
+        input_snapshot={**inputs, "official_chart_cell_percent": cell["chart_value_percent"], "chart_categories": ["<5%", "5% to <10%", "10% to <20%", "20% to <30%", "≥30%"]},
+        summary=f"Experimental WHO chart lookup: 10-year cardiovascular risk category {cell['risk_category']}. This is not a diagnosis and has not been validated for CareKey users or specifically for Indian patients.",
+    )
+
+
+CALCULATORS: dict[str, Calculator] = {"who_2019_south_asia_cvd": _who_south_asia_calculator}
 
 
 def register_calculator(model_key: str, calculator: Calculator) -> None:

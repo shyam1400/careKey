@@ -84,6 +84,29 @@ class FamilyHistoryCreate(BaseModel):
         return self
 
 
+class PatientRiskFactorCreate(BaseModel):
+    factor_key: Literal["current_smoking", "diabetes_status"]
+    value: bool
+    observed_at: datetime
+    source_type: Literal["patient_reported", "clinician_entered", "medical_record"] = "patient_reported"
+    source_document_id: UUID | None = None
+
+    @field_validator("observed_at")
+    @classmethod
+    def require_timezone_and_nonfuture(cls, value: datetime) -> datetime:
+        if value.utcoffset() is None:
+            raise ValueError("Date must include a timezone")
+        if value > datetime.now(timezone.utc):
+            raise ValueError("Date cannot be in the future")
+        return value
+
+    @model_validator(mode="after")
+    def require_source_reference(self):
+        if self.source_type == "medical_record" and self.source_document_id is None:
+            raise ValueError("Select the source medical record")
+        return self
+
+
 class HealthMeasurementResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: UUID
@@ -110,7 +133,24 @@ class FamilyHistoryResponse(BaseModel):
     source_type: str
     source_document_id: UUID | None
     verification_status: str
+    verified_at: datetime | None = None
+    verified_by: UUID | None = None
     note: str | None
+    created_at: datetime
+
+
+class PatientRiskFactorResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: UUID
+    patient_id: UUID
+    factor_key: str
+    value: bool
+    observed_at: datetime
+    source_type: str
+    source_document_id: UUID | None
+    verification_status: str
+    verified_at: datetime | None
+    verified_by: UUID | None
     created_at: datetime
 
 

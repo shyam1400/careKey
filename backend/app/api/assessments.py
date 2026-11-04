@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -8,12 +9,14 @@ from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.enums import AppRole
 from app.models.audit import AccessLog
-from app.models.health_data import HealthAssessment
+from app.models.health_data import HealthAssessment, HealthMeasurement, PatientRiskFactor
 from app.models.patient import Patient
 from app.models.profile import Profile
+from app.models.records import Condition
 from app.models.user import User
 from app.schemas.assessment import AssessmentToolResponse, HealthAssessmentResponse
 from app.services.assessment_engine import TOOLS, run_calculator
+from app.services.who_cvd_2019 import WHO_CHART_SOURCE, WHO_CHART_VERSION, lookup_who_south_asia
 
 router = APIRouter(prefix="/health-assessments", tags=["health-assessments"])
 
@@ -76,6 +79,12 @@ def read_my_assessment(assessment_id: UUID, db: Session = Depends(get_db), user:
 @router.post("/{model_key}/run", response_model=HealthAssessmentResponse)
 def generate_assessment(model_key: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     patient_id = _patient_id(user, db)
+    tool = TOOLS.get(model_key)
+    if tool is None:
+        _audit(db, patient_id, user, "Health assessment generation attempted for unknown model", success=False, model_key=model_key)
+        raise HTTPException(status_code=404, detail="Assessment model not found")
+    if model_key == "who_2019_south_asia_cvd":
+        return _generate_who_cvd_assessment(db, user, patient_id)
     try:
         run_calculator(model_key, {})
     except KeyError:
@@ -85,3 +94,138 @@ def generate_assessment(model_key: str, db: Session = Depends(get_db), user: Use
         _audit(db, patient_id, user, "Health assessment generation blocked", success=False, model_key=model_key)
         raise HTTPException(status_code=409, detail=str(exc)) from None
     raise HTTPException(status_code=422, detail="Assessment inputs are not yet available")
+
+
+def _generate_who_cvd_assessment(db: Session, user: User, patient_id: UUID) -> HealthAssessment:
+    assessed_at = datetime.now(timezone.utc)
+    patient = db.scalar(select(Patient).where(Patient.id == patient_id))
+    if patient is None:
+        _audit(db, patient_id, user, "WHO cardiovascular assessment blocked: patient profile missing", success=False, model_key="who_2019_south_asia_cvd")
+        raise HTTPException(status_code=404, detail="Patient profile not found")
+
+    missing: list[str] = []
+    snapshot: dict = {"chart": WHO_CHART_VERSION, "source": WHO_CHART_SOURCE}
+    references: list[dict] = [{"record_type": "who_chart", "url": WHO_CHART_SOURCE, "version": WHO_CHART_VERSION}]
+    inputs: dict = {}
+
+    if patient.date_of_birth is None:
+        missing.append("date_of_birth")
+    else:
+        today = assessed_at.date()
+        age = today.year - patient.date_of_birth.year - ((today.month, today.day) < (patient.date_of_birth.month, patient.date_of_birth.day))
+        inputs["age"] = age
+        snapshot["date_of_birth"] = patient.date_of_birth.isoformat()
+        snapshot["age_at_assessment"] = age
+        references.append({"record_type": "patient_profile", "record_id": str(patient.id), "field": "date_of_birth"})
+        if age < 40 or age > 74:
+            missing.append("age outside WHO chart range (40–74)")
+
+    sex = (patient.gender or "").strip().lower()
+    if sex not in ("male", "female"):
+        missing.append("sex (WHO chart supports male or female)")
+    else:
+        inputs["sex"] = sex
+        references.append({"record_type": "patient_profile", "record_id": str(patient.id), "field": "gender"})
+
+    verified_factors = db.scalars(select(PatientRiskFactor).where(
+        PatientRiskFactor.patient_id == patient_id,
+        PatientRiskFactor.verification_status == "verified",
+    ).order_by(PatientRiskFactor.observed_at.desc())).all()
+    latest_factors: dict[str, PatientRiskFactor] = {}
+    for factor in verified_factors:
+        latest_factors.setdefault(factor.factor_key, factor)
+    factor_input_names = {"current_smoking": "smoking", "diabetes_status": "diabetes"}
+    for key, input_name in factor_input_names.items():
+        factor = latest_factors.get(key)
+        if factor is None:
+            missing.append(key)
+            continue
+        inputs[input_name] = bool(factor.value)
+        snapshot[key] = {"value": bool(factor.value), "observed_at": factor.observed_at.isoformat(), "source_type": factor.source_type}
+        references.append({"record_type": "patient_risk_factor", "record_id": str(factor.id), "factor": key, "observed_at": factor.observed_at.isoformat(), "source_type": factor.source_type, "source_document_id": str(factor.source_document_id) if factor.source_document_id else None})
+
+    verified_measurements = db.scalars(select(HealthMeasurement).where(
+        HealthMeasurement.patient_id == patient_id,
+        HealthMeasurement.verification_status == "verified",
+        HealthMeasurement.measurement_type.in_(("systolic_blood_pressure", "total_cholesterol")),
+    ).order_by(HealthMeasurement.observed_at.desc())).all()
+    latest_measurements: dict[str, HealthMeasurement] = {}
+    for measurement in verified_measurements:
+        latest_measurements.setdefault(measurement.measurement_type, measurement)
+    for key, input_name in (("systolic_blood_pressure", "systolic_blood_pressure"), ("total_cholesterol", "total_cholesterol_mmol_l")):
+        measurement = latest_measurements.get(key)
+        if measurement is None:
+            missing.append(key)
+            continue
+        value = float(measurement.value)
+        if key == "systolic_blood_pressure":
+            if measurement.unit != "mmHg" or value <= 0:
+                missing.append(f"{key} (invalid unit or value)")
+                continue
+        else:
+            if measurement.unit == "mg/dL":
+                value /= 38.67
+            elif measurement.unit != "mmol/L":
+                missing.append(f"{key} (unsupported unit)")
+                continue
+            if value <= 0:
+                missing.append(f"{key} (must be a positive measurement)")
+                continue
+        inputs[input_name] = value
+        snapshot[key] = {"value": str(measurement.value), "unit": measurement.unit, "observed_at": measurement.observed_at.isoformat(), "source_type": measurement.source_type}
+        references.append({"record_type": "health_measurement", "record_id": str(measurement.id), "measurement_type": key, "observed_at": measurement.observed_at.isoformat(), "source_type": measurement.source_type, "source_document_id": str(measurement.source_document_id) if measurement.source_document_id else None})
+
+    established_cvd_terms = ("cardiovascular disease", "coronary artery disease", "coronary heart disease", "myocardial infarction", "heart attack", "stroke", "peripheral artery disease", "heart failure", "cardiomyopathy", "angina", "aortic aneurysm")
+    conditions = db.scalars(select(Condition).where(Condition.patient_id == patient_id, Condition.status == "active")).all()
+    established_cvd = [condition.name for condition in conditions if any(term in condition.name.lower() for term in established_cvd_terms)]
+    if established_cvd:
+        missing.append("not eligible: existing cardiovascular disease recorded")
+
+    result = None
+    factors: list[dict] = []
+    status = "insufficient_data" if missing else "complete"
+    summary = "No risk category was generated. Complete or verify the listed information before running this assessment."
+    if not missing:
+        try:
+            cell = lookup_who_south_asia(
+                age=inputs["age"], sex=inputs["sex"], smoking=inputs["smoking"],
+                diabetes=inputs["diabetes"], sbp_mmhg=inputs["systolic_blood_pressure"],
+                cholesterol_mmol_l=inputs["total_cholesterol_mmol_l"],
+            )
+        except (TypeError, ValueError):
+            status = "insufficient_data"
+            missing.append("one or more values do not fit a WHO chart input")
+        else:
+            result = {
+                "risk_category": cell["risk_category"],
+                "time_horizon": "10 years",
+                "method": "WHO 2019 South Asia laboratory-based chart lookup",
+            }
+            snapshot["chart_cell"] = {
+                "age_band": cell["age_band"],
+                "systolic_blood_pressure_band": cell["systolic_blood_pressure_band"],
+                "cholesterol_band": cell["cholesterol_band"],
+                "official_chart_value_percent": cell["chart_value_percent"],
+            }
+            factors = [
+                {"label": "Chart input: age band", "value": cell["age_band"]},
+                {"label": "Chart input: sex", "value": cell["sex"]},
+                {"label": "Chart input: current smoking", "value": "yes" if cell["current_smoker"] else "no"},
+                {"label": "Chart input: diabetes", "value": "yes" if cell["diabetes"] else "no"},
+                {"label": "Chart input: systolic pressure band", "value": cell["systolic_blood_pressure_band"] + " mmHg"},
+                {"label": "Chart input: total cholesterol band", "value": cell["cholesterol_band"] + " mmol/L"},
+            ]
+            status = "complete"
+            summary = f"Experimental lookup from the WHO 2019 South Asia chart: 10-year cardiovascular risk category {cell['risk_category']}. This is not a diagnosis and has not been validated for CareKey users or specifically for Indian patients."
+
+    assessment = HealthAssessment(
+        patient_id=patient_id, model_key="who_2019_south_asia_cvd", model_version=WHO_CHART_VERSION,
+        status=status, result=result, contributing_factors=factors,
+        missing_information=missing, source_references=references,
+        input_snapshot=snapshot, summary=summary, assessed_at=assessed_at,
+    )
+    db.add(assessment)
+    db.commit()
+    db.refresh(assessment)
+    _audit(db, patient_id, user, "WHO cardiovascular risk chart assessment generated", success=result is not None, model_key="who_2019_south_asia_cvd")
+    return assessment

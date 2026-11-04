@@ -13,8 +13,9 @@ from app.services.assessment_engine import TOOLS, run_calculator
 
 
 def test_initial_tools_have_population_license_and_use_gates():
-    assert set(TOOLS) == {"prevent_cvd", "idrs_type2_diabetes", "qdiabetes_2018", "bcrat_breast_cancer"}
-    assert all(tool.availability == "disabled" for tool in TOOLS.values())
+    assert set(TOOLS) == {"prevent_cvd", "idrs_type2_diabetes", "qdiabetes_2018", "bcrat_breast_cancer", "who_2019_south_asia_cvd"}
+    assert all(tool.availability == "disabled" for key, tool in TOOLS.items() if key != "who_2019_south_asia_cvd")
+    assert TOOLS["who_2019_south_asia_cvd"].availability == "enabled"
     assert "U.S." in TOOLS["prevent_cvd"].validated_population
     assert "not future-onset prediction" in TOOLS["idrs_type2_diabetes"].intended_use
     assert "UK adults" in TOOLS["qdiabetes_2018"].validated_population
