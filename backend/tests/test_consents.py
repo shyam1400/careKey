@@ -106,6 +106,11 @@ def test_consent_rejects_unknown_record_categories():
         ConsentCreate(provider_id=uuid4(), permissions=["admin_data"])
 
 
+def test_consent_accepts_health_assessments_category():
+    consent = ConsentCreate(provider_id=uuid4(), permissions=["health_assessments"])
+    assert consent.permissions == ["health_assessments"]
+
+
 def test_doctor_can_only_read_categories_on_own_active_consent():
     patient_user, doctor = _user(AppRole.PATIENT), _user(AppRole.DOCTOR)
     patient = Patient(id=patient_user.id, medical_id="CK-12345678", blood_group="O+")

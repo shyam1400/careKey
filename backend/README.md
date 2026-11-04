@@ -47,6 +47,18 @@ All authenticated requests use `Authorization: Bearer <Firebase ID token>`. Fire
 | `GET /hospitals` | Filter and page through hospitals | Public |
 | `POST /hospitals` | Add a hospital | Admin |
 | `GET /roles/patient`, `GET /roles/doctor`, `GET /roles/admin` | Role-gated probes | Matching role |
+| `GET/POST/DELETE /health-data/measurements` | Store patient measurements with units, timestamps, source and verification state | Owning patient |
+| `GET/POST/DELETE /health-data/family-history` | Store family conditions and diagnosis timing with source attribution | Owning patient |
+| `POST /health-data/reports/{document_id}/extract` | Extract candidate lab values from a private, text-based PDF | Owning patient |
+| `GET /health-data/extractions/{id}`, `POST .../candidates/{id}/verify`, `POST .../reject` | Review candidate values; only patient-confirmed values become verified measurements | Owning patient |
+| `GET /health-assessments/models`, `GET /health-assessments/history` | View supported-tool catalog and own assessment history | Patient |
+| `GET /consents/{consent_id}/assessments` | Read assessments while the doctor’s approved affiliation and the patient’s active `health_assessments` grant remain valid | Authorized doctor |
+
+### AI Health Intelligence foundation
+
+Migrations `0010`–`0012` add measurements, family history, report extraction runs and candidates, and versioned assessment snapshots. Patient-entered and extracted values begin unverified. The current extractor runs locally in the API process, reads private storage server-side, and persists only normalized candidate values, page references, and review state; it does not persist report text or send it to a third-party AI/OCR service. It currently supports labeled results in text-based PDFs only. Scanned PDFs and images are not supported. Patients must confirm each extracted result and its measurement date before a verified lab measurement is created.
+
+The model catalog is intentionally present but all risk calculators are disabled pending tool-specific licensing/use review and implementations. It currently describes AHA PREVENT; the Indian Diabetes Risk Score (screening for prevalent/undiagnosed diabetes, not future-onset risk); QDiabetes-2018 (10-year risk for its UK population); and NCI BCRAT/Gail breast cancer risk. Model population eligibility and limitations are included in the catalog. `POST /health-assessments/{model_key}/run` therefore returns a conflict until a calculator is licensed and enabled. Do not treat catalog entries as available clinical results. Health assessment sharing is a separate patient-selected consent category; doctor reads are permission-checked and audited.
 
 The QR payload is a string for a client to render as a QR code. After scanning, the client can submit the Medical ID to the emergency endpoint; the server still requires a doctor token and a reason. Emergency access is audited and does not claim face or biometric verification. The hospital directory does not yet calculate nearest facilities or routing.
 

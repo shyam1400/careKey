@@ -5,7 +5,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { RequireRole } from "@/components/RequireRole";
 import { Badge } from "@/components/ui/badge";
 import { formatDateTime } from "@/lib/carekey";
-import { Activity, ArrowUpRight, FileText, HeartPulse, History, MapPin, QrCode, Share2, ShieldCheck } from "lucide-react";
+import { Activity, ArrowUpRight, FileText, HeartPulse, History, MapPin, QrCode, Share2, ShieldCheck, Stethoscope } from "lucide-react";
 import { MyProcedures } from "@/components/MyProcedures";
 
 export const Route = createFileRoute("/dashboard")({
@@ -34,6 +34,8 @@ export const Route = createFileRoute("/dashboard")({
 const cards = [
   { to: "/profile", title: "Medical profile", body: "Keep your emergency details current", icon: HeartPulse },
   { to: "/records", title: "Medical records", body: "Documents, reports and results", icon: FileText },
+  { to: "/health-data", title: "Health data", body: "Measurements and family history", icon: Stethoscope },
+  { to: "/health-insights", title: "Health insights", body: "Risk assessments and assessment history", icon: Activity },
   { to: "/share", title: "Sharing & consent", body: "Choose who can see your records", icon: Share2 },
   { to: "/qr", title: "Emergency QR", body: "Open your Medical ID code", icon: QrCode },
   { to: "/hospitals", title: "Find hospitals", body: "Browse nearby care locations", icon: MapPin },

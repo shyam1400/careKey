@@ -28,6 +28,7 @@ export const Route = createFileRoute("/doctor")({
 function DoctorPage() {
   const { user } = useAuth();
   const [openConsent, setOpenConsent] = useState<string | null>(null);
+  const [openAssessments, setOpenAssessments] = useState<string | null>(null);
   const [hospitalCode, setHospitalCode] = useState("");
   const [hospitalMatch, setHospitalMatch] = useState<{ id: string; code: string; name: string } | null>(null);
   const [affiliationMessage, setAffiliationMessage] = useState("");
@@ -91,20 +92,46 @@ function DoctorPage() {
                 {c.permissions.map(categoryLabel).join(", ")} · expires {formatDateTime(c.expires_at)}
               </p>
               {c.status === "active" ? (
-                <button
-                  className="mt-3 text-sm text-primary underline"
-                  onClick={() => setOpenConsent(openConsent === c.id ? null : c.id)}
-                >
-                  {openConsent === c.id ? "Close shared records" : "View shared records"}
-                </button>
+                <div className="mt-3 flex flex-wrap gap-4">
+                  <button className="text-sm text-primary underline" onClick={() => setOpenConsent(openConsent === c.id ? null : c.id)}>
+                    {openConsent === c.id ? "Close shared records" : "View shared records"}
+                  </button>
+                  {c.permissions.includes("health_assessments") ? <button className="text-sm text-primary underline" onClick={() => setOpenAssessments(openAssessments === c.id ? null : c.id)}>
+                    {openAssessments === c.id ? "Close health assessments" : "View shared health assessments"}
+                  </button> : null}
+                </div>
               ) : null}
               {openConsent === c.id && user ? <ConsentedRecords consentId={c.id} user={user} /> : null}
+              {openAssessments === c.id && user ? <ConsentedAssessments consentId={c.id} user={user} /> : null}
             </li>
           ))}
         </ul>
       )}
     </div>
   );
+}
+
+function ConsentedAssessments({ consentId, user }: { consentId: string; user: NonNullable<ReturnType<typeof useAuth>["user"]> }) {
+  const { data, isLoading, error } = useQuery({
+    queryKey: ["consented-assessments", consentId],
+    queryFn: () => carekeyRequest<Array<{
+      id: string; model_key: string; model_version: string; status: string; result: Record<string, unknown> | null;
+      contributing_factors: Array<{ label?: string; value?: unknown }>; missing_information: string[];
+      source_references: Array<{ record_type?: string; record_id?: string; observed_at?: string }>;
+      summary: string | null; assessed_at: string;
+    }>>(`/consents/${consentId}/assessments`, user),
+  });
+  if (isLoading) return <p className="mt-3 text-sm text-muted-foreground">Loading shared assessments…</p>;
+  if (error) return <p className="mt-3 text-sm text-destructive">{error.message}</p>;
+  if (!data?.length) return <p className="mt-3 border-t pt-3 text-sm text-muted-foreground">No assessments have been shared yet.</p>;
+  return <div className="mt-3 space-y-3 border-t pt-3">{data.map((item) => <section key={item.id} className="rounded-md bg-muted p-3 text-sm">
+    <div className="flex flex-wrap justify-between gap-2"><strong>{item.model_key.replaceAll("_", " ")} · v{item.model_version}</strong><span className="text-xs text-muted-foreground">{formatDateTime(item.assessed_at)}</span></div>
+    {item.summary ? <p className="mt-2">{item.summary}</p> : null}
+    <p className="mt-1 text-xs text-muted-foreground">Status: {item.status.replaceAll("_", " ")}{item.result ? ` · Result: ${formatRecord(item.result)}` : ""}</p>
+    {item.missing_information.length ? <p className="mt-1 text-xs">Missing: {item.missing_information.join(", ")}</p> : null}
+    {item.contributing_factors.length ? <p className="mt-1 text-xs">Factors: {item.contributing_factors.map((factor) => `${factor.label ?? "Factor"}: ${String(factor.value ?? "recorded")}`).join(" · ")}</p> : null}
+    {item.source_references.length ? <p className="mt-1 text-xs text-muted-foreground">Sources: {item.source_references.map((source) => `${source.record_type ?? "record"} ${source.record_id?.slice(0, 8) ?? ""}`).join(" · ")}</p> : null}
+  </section>)}</div>;
 }
 
 function ConsentedRecords({ consentId, user }: { consentId: string; user: NonNullable<ReturnType<typeof useAuth>["user"]> }) {
@@ -138,6 +165,7 @@ function ConsentedRecords({ consentId, user }: { consentId: string; user: NonNul
     </div>
   );
 }
+
 
 function formatRecord(value: unknown): string {
   if (value && typeof value === "object") {

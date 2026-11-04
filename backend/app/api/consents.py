@@ -13,6 +13,7 @@ from app.models.audit import AccessLog
 from app.models.enums import AppRole, ConsentStatus
 from app.models.hospital import Hospital
 from app.models.patient import Patient
+from app.models.health_data import HealthAssessment
 from app.models.profile import Profile
 from app.models.records import Allergy, Condition, Document, Medication, Surgery
 from app.models.user import User
@@ -198,6 +199,21 @@ def read_consented_records(
                     "url": create_download_url(doc.storage_path),
                 })
 
+    if "health_assessments" in permissions:
+        result["health_assessments"] = [
+            {
+                "id": str(item.id), "model_key": item.model_key, "model_version": item.model_version,
+                "status": item.status, "result": item.result,
+                "contributing_factors": item.contributing_factors,
+                "missing_information": item.missing_information,
+                "source_references": item.source_references,
+                "summary": item.summary, "assessed_at": item.assessed_at,
+            }
+            for item in db.scalars(select(HealthAssessment).where(
+                HealthAssessment.patient_id == patient.id,
+            ).order_by(HealthAssessment.assessed_at.desc()).limit(100)).all()
+        ]
+
     provider_profile = db.scalar(select(Profile).where(Profile.id == user.id))
     provider_hospital = _approved_hospital(db, user.id)
     db.add(AccessLog(
@@ -214,6 +230,66 @@ def read_consented_records(
     ))
     db.commit()
     return result
+
+
+@router.get("/{consent_id}/assessments")
+def read_consented_assessments(
+    consent_id: UUID,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[dict]:
+    if user.role != AppRole.DOCTOR or _approved_hospital(db, user.id) is None:
+        raise HTTPException(status_code=403, detail="Only doctors with an approved hospital affiliation can view shared assessments")
+    consent = db.scalar(select(Consent).where(Consent.id == consent_id))
+    if consent is None or consent.provider_id != user.id:
+        raise HTTPException(status_code=404, detail="Consent not found")
+
+    now = datetime.now(timezone.utc)
+    allowed = (
+        consent.status == ConsentStatus.ACTIVE
+        and (consent.expires_at is None or consent.expires_at > now)
+        and "health_assessments" in consent.permissions
+    )
+    if not allowed:
+        if consent.status == ConsentStatus.ACTIVE and consent.expires_at is not None and consent.expires_at <= now:
+            consent.status = ConsentStatus.EXPIRED
+            db.add(consent)
+        provider_profile = db.scalar(select(Profile).where(Profile.id == user.id))
+        db.add(AccessLog(
+            patient_id=consent.patient_id, provider_id=user.id,
+            provider_name=provider_profile.full_name if provider_profile else (user.email or "Doctor")[:100],
+            action="Denied health assessment access: consent inactive or category not granted",
+            categories=["health_assessments"], reason=consent.purpose,
+            access_type="health_assessment", success=False,
+        ))
+        db.commit()
+        raise HTTPException(status_code=403, detail="Active consent for health assessments is required")
+
+    rows = db.scalars(select(HealthAssessment).where(
+        HealthAssessment.patient_id == consent.patient_id,
+    ).order_by(HealthAssessment.assessed_at.desc()).limit(100)).all()
+    provider_profile = db.scalar(select(Profile).where(Profile.id == user.id))
+    provider_hospital = _approved_hospital(db, user.id)
+    db.add(AccessLog(
+        patient_id=consent.patient_id, provider_id=user.id,
+        provider_name=provider_profile.full_name if provider_profile else (user.email or "Doctor")[:100],
+        hospital_id=provider_hospital.id if provider_hospital else None,
+        hospital_name=provider_hospital.name if provider_hospital else None,
+        action="Consent-based health assessment access", categories=["health_assessments"],
+        reason=consent.purpose, access_type="health_assessment", success=True,
+    ))
+    db.commit()
+    return [
+        {
+            "id": item.id, "model_key": item.model_key, "model_version": item.model_version,
+            "status": item.status, "result": item.result,
+            "contributing_factors": item.contributing_factors,
+            "missing_information": item.missing_information,
+            "source_references": item.source_references,
+            "summary": item.summary, "assessed_at": item.assessed_at,
+        }
+        for item in rows
+    ]
 
 
 @router.post("/{consent_id}/revoke", response_model=ConsentResponse)

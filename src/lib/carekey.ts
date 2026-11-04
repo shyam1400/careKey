@@ -7,6 +7,7 @@ export type Category =
   | "surgeries"
   | "prescriptions"
   | "lab_reports"
+  | "health_assessments"
   | "documents";
 
 export const CATEGORIES: { key: Category; label: string }[] = [
@@ -18,6 +19,7 @@ export const CATEGORIES: { key: Category; label: string }[] = [
   { key: "surgeries", label: "Surgeries" },
   { key: "prescriptions", label: "Prescriptions" },
   { key: "lab_reports", label: "Lab reports" },
+  { key: "health_assessments", label: "Health assessments" },
   { key: "documents", label: "Other medical documents" },
 ];
 

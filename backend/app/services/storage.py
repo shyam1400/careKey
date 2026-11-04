@@ -59,6 +59,33 @@ def create_download_url(path: str, expires_in: int = 60) -> str:
     return f"{(settings.supabase_url or '').rstrip('/')}/storage/v1{signed_url}"
 
 
+def download_object(path: str, max_bytes: int = 10 * 1024 * 1024) -> bytes:
+    """Download a private object server-side for extraction; never expose its bytes or service key."""
+    settings = get_settings()
+    base_url = (settings.supabase_url or "").rstrip("/")
+    key = (settings.supabase_service_role_key or "").strip()
+    if not base_url or not key:
+        raise HTTPException(status_code=503, detail="Private document storage is not configured on the backend")
+    bucket = quote(settings.supabase_storage_bucket, safe="")
+    try:
+        with httpx.stream(
+            "GET", f"{base_url}/storage/v1/object/{bucket}/{_object_path(path)}",
+            headers={"apikey": key, "Authorization": f"Bearer {key}"}, timeout=30,
+        ) as response:
+            if not response.is_success:
+                raise HTTPException(status_code=502, detail="Document storage could not read the report")
+            chunks: list[bytes] = []
+            total = 0
+            for chunk in response.iter_bytes():
+                total += len(chunk)
+                if total > max_bytes:
+                    raise HTTPException(status_code=413, detail="Report exceeds the extraction size limit")
+                chunks.append(chunk)
+            return b"".join(chunks)
+    except httpx.HTTPError:
+        raise HTTPException(status_code=502, detail="Document storage is temporarily unavailable") from None
+
+
 def delete_object(path: str) -> None:
     settings = get_settings()
     bucket = quote(settings.supabase_storage_bucket, safe="")

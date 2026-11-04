@@ -8,7 +8,7 @@ from app.models.enums import ConsentStatus
 
 SUPPORTED_PERMISSIONS = {
     "basic", "blood", "allergies", "medications", "conditions", "surgeries",
-    "prescriptions", "lab_reports", "documents",
+    "prescriptions", "lab_reports", "documents", "health_assessments",
 }
 
 

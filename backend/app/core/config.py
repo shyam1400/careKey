@@ -19,7 +19,7 @@ class Settings(BaseSettings):
         default="postgresql+psycopg://carekey:carekey@localhost:5432/carekey",
         description="SQLAlchemy URL using the psycopg (v3) driver.",
     )
-    cors_origins: str = "http://localhost:5173,http://localhost:3000"
+    cors_origins: str = "http://localhost:5173,http://localhost:3000,http://localhost:8080"
     local_storage_dir: str = "./storage"
     supabase_url: str | None = None
     supabase_service_role_key: str | None = Field(

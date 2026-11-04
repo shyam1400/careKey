@@ -10,6 +10,8 @@ const patientNav = [
   { to: "/dashboard", label: "Dashboard" },
   { to: "/profile", label: "Medical profile" },
   { to: "/records", label: "Records" },
+  { to: "/health-data", label: "Health data" },
+  { to: "/health-insights", label: "Health insights" },
   { to: "/share", label: "Sharing" },
   { to: "/qr", label: "Emergency QR" },
   { to: "/history", label: "Access history" },

@@ -5,9 +5,11 @@ from app.api.auth import router as auth_router
 from app.api.audit import router as audit_router
 from app.api.affiliations import router as affiliations_router
 from app.api.admin import router as admin_router
+from app.api.assessments import router as assessments_router
 from app.api.consents import router as consents_router
 from app.api.emergency import router as emergency_router
 from app.api.health import router as health_router
+from app.api.health_data import router as health_data_router
 from app.api.hospitals import router as hospitals_router
 from app.api.hospital_account import router as hospital_account_router
 from app.api.patients import router as patients_router
@@ -40,6 +42,8 @@ app.add_middleware(
 
 register_exception_handlers(app)
 app.include_router(health_router)
+app.include_router(health_data_router)
+app.include_router(assessments_router)
 app.include_router(auth_router)
 app.include_router(passkeys_router)
 app.include_router(procedures_router)
