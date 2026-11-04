@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from app.services.who_cvd_2019 import WHO_CHART_SOURCE, WHO_CHART_VERSION, lookup_who_south_asia
+from app.services.idrs_2005 import IDRS_SOURCE, IDRS_VERSION, calculate_idrs
 
 
 @dataclass(frozen=True)
@@ -19,6 +20,10 @@ class AssessmentTool:
     source_url: str
     license_status: str
     availability: str
+    minimum_age: int | None = None
+    maximum_age: int | None = None
+    chart_minimum_age: int | None = None
+    chart_maximum_age: int | None = None
 
 
 @dataclass(frozen=True)
@@ -40,16 +45,18 @@ TOOLS: dict[str, AssessmentTool] = {
         key="who_2019_south_asia_cvd", name="WHO 2019 South Asia cardiovascular risk chart",
         category="cardiovascular", version=WHO_CHART_VERSION,
         intended_use="Experimental 10-year cardiovascular risk category for health discussions; not diagnosis",
-        validated_population="Chart population in South Asia (Bangladesh, Bhutan, India, Nepal, Pakistan), ages 40–74",
+        validated_population="Underlying model derived for ages 40–80 in South Asia; published South Asia chart has age bands only through 70–74",
         required_inputs=("age", "sex", "current_smoking", "diabetes_status", "systolic_blood_pressure", "total_cholesterol"),
         limitations=(
-            "Uses published chart bins and reports only the chart's risk category.",
+            "Uses published chart bins and reports only the chart's risk category; exact chart lookup is available for ages 40–74.",
+            "Ages 75–80 are within the underlying model derivation range, but the published South Asia categorical chart has no corresponding rows; CareKey does not extrapolate.",
             "Not independently validated for CareKey users or specifically validated for Indian patients.",
             "Does not include family history, treatment, HDL, or other clinical factors; not for people with established cardiovascular disease.",
         ),
         source_url=WHO_CHART_SOURCE,
         license_status="published_who_chart_attributed",
         availability="enabled",
+        minimum_age=40, maximum_age=80, chart_minimum_age=40, chart_maximum_age=74,
     ),
     "prevent_cvd": AssessmentTool(
         key="prevent_cvd", name="AHA PREVENT CVD", category="cardiovascular",
@@ -62,12 +69,19 @@ TOOLS: dict[str, AssessmentTool] = {
     ),
     "idrs_type2_diabetes": AssessmentTool(
         key="idrs_type2_diabetes", name="Indian Diabetes Risk Score (IDRS)", category="type_2_diabetes",
-        version="2005+validation-2020", intended_use="Screening for prevalent or undiagnosed diabetes, not future-onset prediction",
+        version=IDRS_VERSION, intended_use="Screening for possible previously undiagnosed diabetes; not a diagnosis or future-onset prediction",
         validated_population="Indian adult populations; performance and thresholds depend on the population and setting",
-        required_inputs=("age", "waist_circumference", "physical_activity", "family_history_of_diabetes"),
-        limitations=("Screening score does not diagnose diabetes or estimate an individual's future-onset probability", "Use requires confirmation of instrument and implementation permissions"),
-        source_url="https://pubmed.ncbi.nlm.nih.gov/16126124/",
-        license_status="permission_review_required", availability="disabled",
+        required_inputs=("age", "sex", "waist_circumference", "physical_activity", "family_history_of_diabetes"),
+        limitations=(
+            "Screens for possible previously undiagnosed diabetes; it does not diagnose diabetes or estimate future-onset probability.",
+            "Uses the original MDRF-IDRS activity categories and parental family-history definitions; later adaptations may use different categories.",
+            "Original score derived from CURES in Chennai; performance may differ across settings and populations.",
+            "Original CURES derivation cohort was sampled from adults aged 20–80; ages 18–19 and over 80 are outside the configured population.",
+            "Independent implementation follows the published scoring table with attribution and does not copy proprietary model code or weights.",
+        ),
+        source_url=IDRS_SOURCE,
+        license_status="published_method_attributed_independent_implementation",
+        availability="enabled", minimum_age=20, maximum_age=80,
     ),
     "qdiabetes_2018": AssessmentTool(
         key="qdiabetes_2018", name="QDiabetes-2018", category="type_2_diabetes",
@@ -119,7 +133,45 @@ def _who_south_asia_calculator(inputs: dict[str, Any]) -> AssessmentOutput:
     )
 
 
-CALCULATORS: dict[str, Calculator] = {"who_2019_south_asia_cvd": _who_south_asia_calculator}
+def _idrs_calculator(inputs: dict[str, Any]) -> AssessmentOutput:
+    calculated = calculate_idrs(
+        age=inputs["age"], sex=inputs["sex"], waist_cm=inputs["waist_circumference_cm"],
+        physical_activity=inputs["physical_activity"], parental_diabetes=inputs["parental_diabetes"],
+    )
+    score = calculated["score"]
+    category = calculated["screening_category"]
+    descriptions = {
+        "low": "low screening score",
+        "moderate": "moderate screening score",
+        "high": "high screening score",
+    }
+    labels = {
+        "both": "regular leisure exercise and strenuous work activity",
+        "either": "either regular leisure exercise or strenuous work activity",
+        "neither": "neither regular leisure exercise nor strenuous work activity",
+    }
+    family_labels = {"none": "neither parent", "one_parent": "one parent", "both_parents": "both parents"}
+    factors = [
+        {"label": "Age", "value": f"{inputs['age']} years ({calculated['points']['age']} points)"},
+        {"label": "Waist circumference", "value": f"{inputs['waist_circumference_cm']} cm ({calculated['points']['waist_circumference']} points)"},
+        {"label": "Physical activity", "value": f"{labels[inputs['physical_activity']]} ({calculated['points']['physical_activity']} points)"},
+        {"label": "Diabetes in parents", "value": f"{family_labels[inputs['parental_diabetes']]} ({calculated['points']['parental_diabetes_history']} points)"},
+    ]
+    return AssessmentOutput(
+        status="complete",
+        result={"idrs_score": score, "maximum_score": 100, "screening_category": category, "assessment_type": "screening"},
+        contributing_factors=factors,
+        missing_information=[],
+        source_references=[{"title": "A Simplified Indian Diabetes Risk Score for Screening for Undiagnosed Diabetic Subjects", "url": IDRS_SOURCE, "version": IDRS_VERSION}],
+        input_snapshot={**inputs, "idrs_points": calculated["points"], "score": score, "screening_category": category},
+        summary=f"Experimental IDRS screening result: {descriptions[category]} ({score}/100). This is a screening score for possible previously undiagnosed diabetes, not a diagnosis and not an estimate of future-onset probability. Confirm with an appropriate clinical test.",
+    )
+
+
+CALCULATORS: dict[str, Calculator] = {
+    "who_2019_south_asia_cvd": _who_south_asia_calculator,
+    "idrs_type2_diabetes": _idrs_calculator,
+}
 
 
 def register_calculator(model_key: str, calculator: Calculator) -> None:

@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 MeasurementType = Literal[
     "systolic_blood_pressure", "diastolic_blood_pressure", "height", "weight", "bmi",
+    "waist_circumference",
     "total_cholesterol", "hdl_cholesterol", "ldl_cholesterol", "triglycerides",
     "fasting_glucose", "random_glucose", "hba1c", "serum_creatinine", "egfr", "uacr",
 ]
@@ -17,6 +18,7 @@ FAMILY_RELATIONSHIPS = {"mother", "father", "sister", "brother", "daughter", "so
 ALLOWED_UNITS: dict[str, set[str]] = {
     "systolic_blood_pressure": {"mmHg"}, "diastolic_blood_pressure": {"mmHg"},
     "height": {"cm", "m", "in"}, "weight": {"kg", "lb"}, "bmi": {"kg/m2"},
+    "waist_circumference": {"cm"},
     "total_cholesterol": {"mg/dL", "mmol/L"}, "hdl_cholesterol": {"mg/dL", "mmol/L"},
     "ldl_cholesterol": {"mg/dL", "mmol/L"}, "triglycerides": {"mg/dL", "mmol/L"},
     "fasting_glucose": {"mg/dL", "mmol/L"}, "random_glucose": {"mg/dL", "mmol/L"},
@@ -49,6 +51,8 @@ class HealthMeasurementCreate(BaseModel):
             raise ValueError(f"Unit is not supported for {self.measurement_type}")
         if self.source_type == "lab_report" and self.source_document_id is None:
             raise ValueError("Select the source report for a lab result")
+        if self.measurement_type == "waist_circumference" and not Decimal("30") <= self.value <= Decimal("250"):
+            raise ValueError("Waist circumference must be between 30 and 250 cm")
         return self
 
 
@@ -107,6 +111,35 @@ class PatientRiskFactorCreate(BaseModel):
         return self
 
 
+class PatientAssessmentInputCreate(BaseModel):
+    input_key: Literal["idrs_physical_activity", "idrs_parental_diabetes"]
+    value: Literal["both", "either", "neither", "none", "one_parent", "both_parents"]
+    observed_at: datetime
+    source_type: Literal["patient_reported", "clinician_entered", "medical_record"] = "patient_reported"
+    source_document_id: UUID | None = None
+
+    @field_validator("observed_at")
+    @classmethod
+    def require_timezone_and_nonfuture(cls, value: datetime) -> datetime:
+        if value.utcoffset() is None:
+            raise ValueError("Date must include a timezone")
+        if value > datetime.now(timezone.utc):
+            raise ValueError("Date cannot be in the future")
+        return value
+
+    @model_validator(mode="after")
+    def validate_value_and_source(self):
+        allowed = {
+            "idrs_physical_activity": {"both", "either", "neither"},
+            "idrs_parental_diabetes": {"none", "one_parent", "both_parents"},
+        }
+        if self.value not in allowed[self.input_key]:
+            raise ValueError("Value is not valid for this IDRS input")
+        if self.source_type == "medical_record" and self.source_document_id is None:
+            raise ValueError("Select the source medical record")
+        return self
+
+
 class HealthMeasurementResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: UUID
@@ -118,6 +151,8 @@ class HealthMeasurementResponse(BaseModel):
     source_type: str
     source_document_id: UUID | None
     verification_status: str
+    verified_at: datetime | None = None
+    verified_by: UUID | None = None
     note: str | None
     created_at: datetime
 
@@ -145,6 +180,21 @@ class PatientRiskFactorResponse(BaseModel):
     patient_id: UUID
     factor_key: str
     value: bool
+    observed_at: datetime
+    source_type: str
+    source_document_id: UUID | None
+    verification_status: str
+    verified_at: datetime | None
+    verified_by: UUID | None
+    created_at: datetime
+
+
+class PatientAssessmentInputResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: UUID
+    patient_id: UUID
+    input_key: str
+    value: str
     observed_at: datetime
     source_type: str
     source_document_id: UUID | None

@@ -9,13 +9,14 @@ from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.enums import AppRole
 from app.models.audit import AccessLog
-from app.models.health_data import FamilyHistory, HealthMeasurement, PatientRiskFactor, ReportExtraction, ReportExtractionCandidate
+from app.models.health_data import FamilyHistory, HealthMeasurement, PatientAssessmentInput, PatientRiskFactor, ReportExtraction, ReportExtractionCandidate
 from app.models.patient import Patient
 from app.models.records import Document
 from app.models.user import User
 from app.schemas.health_data import (
     FamilyHistoryCreate, FamilyHistoryResponse,
     HealthMeasurementCreate, HealthMeasurementResponse,
+    PatientAssessmentInputCreate, PatientAssessmentInputResponse,
     PatientRiskFactorCreate, PatientRiskFactorResponse,
     ReportExtractionDetailResponse, ReportExtractionResponse, VerifyReportCandidate,
 )
@@ -141,6 +142,57 @@ def delete_risk_factor(factor_id: UUID, db: Session = Depends(get_db), user: Use
     ))
     if row is None:
         raise HTTPException(status_code=404, detail="Risk factor not found")
+    db.delete(row)
+    db.commit()
+
+
+@router.get("/assessment-inputs", response_model=list[PatientAssessmentInputResponse])
+def list_assessment_inputs(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    patient_id = _patient_id(user, db)
+    return db.scalars(select(PatientAssessmentInput).where(
+        PatientAssessmentInput.patient_id == patient_id,
+    ).order_by(PatientAssessmentInput.observed_at.desc()).limit(100)).all()
+
+
+@router.post("/assessment-inputs", response_model=PatientAssessmentInputResponse, status_code=status.HTTP_201_CREATED)
+def create_assessment_input(payload: PatientAssessmentInputCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    patient_id = _patient_id(user, db)
+    _validate_source_document(db, patient_id, payload.source_document_id)
+    row = PatientAssessmentInput(patient_id=patient_id, verification_status="unverified", **payload.model_dump())
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+@router.post("/assessment-inputs/{input_id}/verify", response_model=PatientAssessmentInputResponse)
+def verify_assessment_input(input_id: UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    patient_id = _patient_id(user, db)
+    row = db.scalar(select(PatientAssessmentInput).where(
+        PatientAssessmentInput.id == input_id, PatientAssessmentInput.patient_id == patient_id,
+    ))
+    if row is None:
+        raise HTTPException(status_code=404, detail="Assessment input not found")
+    if row.verification_status != "unverified":
+        raise HTTPException(status_code=409, detail="Assessment input has already been reviewed")
+    row.verification_status = "verified"
+    row.verified_at = datetime.now(timezone.utc)
+    row.verified_by = user.id
+    db.add(row)
+    _health_data_audit(db, patient_id, user, "Patient verified an assessment input")
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+@router.delete("/assessment-inputs/{input_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_assessment_input(input_id: UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> None:
+    patient_id = _patient_id(user, db)
+    row = db.scalar(select(PatientAssessmentInput).where(
+        PatientAssessmentInput.id == input_id, PatientAssessmentInput.patient_id == patient_id,
+    ))
+    if row is None:
+        raise HTTPException(status_code=404, detail="Assessment input not found")
     db.delete(row)
     db.commit()
 

@@ -3,7 +3,7 @@ from app.models.affiliation import HospitalDoctorAffiliation
 from app.models.consent import Consent
 from app.models.enums import AppRole, ConsentStatus
 from app.models.hospital import Hospital, HospitalProcedure
-from app.models.health_data import FamilyHistory, HealthAssessment, HealthMeasurement, PatientRiskFactor, ReportExtraction, ReportExtractionCandidate
+from app.models.health_data import FamilyHistory, HealthAssessment, HealthMeasurement, PatientAssessmentInput, PatientRiskFactor, ReportExtraction, ReportExtractionCandidate
 from app.models.patient import Patient
 from app.models.passkey import PasskeyChallenge, PasskeyCredential
 from app.models.profile import Profile, UserRole
@@ -23,6 +23,7 @@ __all__ = [
     "HospitalProcedure",
     "FamilyHistory",
     "HealthMeasurement",
+    "PatientAssessmentInput",
     "PatientRiskFactor",
     "HealthAssessment",
     "ReportExtraction",

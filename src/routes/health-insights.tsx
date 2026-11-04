@@ -12,6 +12,8 @@ type Tool = {
   key: string; name: string; category: string; version: string; intended_use: string;
   validated_population: string; required_inputs: string[]; limitations: string[];
   source_url: string; license_status: string; availability: string;
+  minimum_age: number | null; maximum_age: number | null;
+  chart_minimum_age: number | null; chart_maximum_age: number | null;
 };
 type Assessment = {
   id: string; model_key: string; model_version: string; status: string;
@@ -47,6 +49,8 @@ function HealthInsightsPage() {
       <div className="flex items-start justify-between gap-3"><div><h2 className="font-semibold">{tool.name}</h2><p className="text-sm text-muted-foreground">{tool.category.replaceAll("_", " ")} · version {tool.version}</p></div><Badge variant="outline">{tool.availability === "enabled" ? "Available" : "Not enabled"}</Badge></div>
       <p className="text-sm">{tool.intended_use}</p>
       <p className="text-xs text-muted-foreground"><strong>Validated population:</strong> {tool.validated_population}</p>
+      {tool.minimum_age !== null ? <p className="text-xs text-muted-foreground"><strong>Age eligibility:</strong> {tool.minimum_age}{tool.maximum_age !== null ? `–${tool.maximum_age}` : "+"} years</p> : null}
+      {tool.chart_minimum_age !== null && tool.chart_maximum_age !== null ? <p className="text-xs text-muted-foreground"><strong>Published chart ages available:</strong> {tool.chart_minimum_age}–{tool.chart_maximum_age}. For eligible ages without a chart row, CareKey will not estimate a category.</p> : null}
       <p className="text-xs text-muted-foreground"><strong>Needed information:</strong> {tool.required_inputs.map((item) => item.replaceAll("_", " ")).join(", ")}</p>
       {tool.limitations.map((limitation) => <p key={limitation} className="text-xs text-muted-foreground">• {limitation}</p>)}
       <p className="text-xs">Tool access: {tool.license_status.replaceAll("_", " ")}</p>
@@ -59,7 +63,9 @@ function HealthInsightsPage() {
       <div className="mt-3 divide-y">{(history.data ?? []).map((item) => <article key={item.id} className="py-4">
         <div className="flex flex-wrap justify-between gap-2"><strong>{item.model_key.replaceAll("_", " ")} · v{item.model_version}</strong><span className="text-sm text-muted-foreground">{new Date(item.assessed_at).toLocaleString()}</span></div>
         {item.summary ? <p className="mt-2 text-sm">{item.summary}</p> : null}
-        {item.result?.risk_category ? <p className="mt-2 text-lg font-semibold">10-year category: {String(item.result.risk_category)}</p> : item.result ? <p className="mt-1 text-sm">Result: {Object.entries(item.result).map(([key, value]) => `${key.replaceAll("_", " ")}: ${String(value)}`).join(" · ")}</p> : null}
+        {item.result?.risk_category ? <p className="mt-2 text-lg font-semibold">10-year category: {String(item.result.risk_category)}</p> : null}
+        {item.result?.idrs_score !== undefined ? <div className="mt-2"><p className="text-lg font-semibold">IDRS screening score: {String(item.result.idrs_score)} / 100</p><p className="font-medium">Screening category: {String(item.result.screening_category)}</p><p className="text-xs text-muted-foreground">This screening score is not a diagnosis or future-onset prediction.</p></div> : null}
+        {!item.result?.risk_category && item.result?.idrs_score === undefined && item.result ? <p className="mt-1 text-sm">Result: {Object.entries(item.result).map(([key, value]) => `${key.replaceAll("_", " ")}: ${String(value)}`).join(" · ")}</p> : null}
         {item.missing_information.length ? <p className="mt-1 text-sm text-muted-foreground">Missing information: {item.missing_information.join(", ")}</p> : null}
         {item.contributing_factors.length ? <p className="mt-1 text-sm text-muted-foreground">Factors: {item.contributing_factors.map((factor) => `${factor.label ?? "Factor"}: ${String(factor.value ?? "recorded")}`).join(" · ")}</p> : null}
         <p className="mt-1 text-xs text-muted-foreground">Status: {item.status.replaceAll("_", " ")}</p>

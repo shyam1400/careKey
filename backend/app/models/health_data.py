@@ -82,6 +82,31 @@ class PatientRiskFactor(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
+class PatientAssessmentInput(Base):
+    """Timestamped, patient-verifiable categorical input for a specific assessment."""
+    __tablename__ = "patient_assessment_inputs"
+    __table_args__ = (
+        CheckConstraint(
+            "(input_key = 'idrs_physical_activity' AND value IN ('both', 'either', 'neither')) OR "
+            "(input_key = 'idrs_parental_diabetes' AND value IN ('none', 'one_parent', 'both_parents'))",
+            name="valid_patient_assessment_input_value",
+        ),
+        CheckConstraint("verification_status IN ('unverified', 'verified', 'rejected')", name="valid_patient_assessment_input_verification_status"),
+    )
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    patient_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), ForeignKey("patients.id", ondelete="CASCADE"), nullable=False, index=True)
+    input_key: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    value: Mapped[str] = mapped_column(String(24), nullable=False)
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    source_type: Mapped[str] = mapped_column(String(24), nullable=False, default="patient_reported", server_default="patient_reported")
+    source_document_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("documents.id", ondelete="SET NULL"), nullable=True)
+    verification_status: Mapped[str] = mapped_column(String(16), nullable=False, default="unverified", server_default="unverified")
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    verified_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("profiles.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
 class ReportExtraction(Base):
     __tablename__ = "report_extractions"
 

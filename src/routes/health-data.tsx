@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 const measurementOptions = [
   ["systolic_blood_pressure", "Systolic blood pressure", "mmHg"],
   ["diastolic_blood_pressure", "Diastolic blood pressure", "mmHg"],
+  ["waist_circumference", "Waist circumference (IDRS)", "cm"],
   ["height", "Height", "cm"], ["weight", "Weight", "kg"], ["bmi", "BMI", "kg/m2"],
   ["total_cholesterol", "Total cholesterol", "mg/dL"], ["hdl_cholesterol", "HDL cholesterol", "mg/dL"],
   ["ldl_cholesterol", "LDL cholesterol", "mg/dL"], ["triglycerides", "Triglycerides", "mg/dL"],
@@ -33,6 +34,10 @@ type FamilyHistory = {
 };
 type PatientRiskFactor = {
   id: string; factor_key: "current_smoking" | "diabetes_status"; value: boolean;
+  observed_at: string; source_type: string; verification_status: string;
+};
+type PatientAssessmentInput = {
+  id: string; input_key: "idrs_physical_activity" | "idrs_parental_diabetes"; value: string;
   observed_at: string; source_type: string; verification_status: string;
 };
 type ExtractionDetail = {
@@ -65,6 +70,9 @@ function HealthDataPage() {
   const [factorKey, setFactorKey] = useState<PatientRiskFactor["factor_key"]>("current_smoking");
   const [factorValue, setFactorValue] = useState("false");
   const [factorObservedAt, setFactorObservedAt] = useState("");
+  const [idrsInputKey, setIdrsInputKey] = useState<PatientAssessmentInput["input_key"]>("idrs_physical_activity");
+  const [idrsInputValue, setIdrsInputValue] = useState("both");
+  const [idrsObservedAt, setIdrsObservedAt] = useState("");
 
   const measurements = useQuery({
     queryKey: ["health-measurements", user?.id], enabled: !!user,
@@ -77,6 +85,10 @@ function HealthDataPage() {
   const riskFactors = useQuery({
     queryKey: ["patient-risk-factors", user?.id], enabled: !!user,
     queryFn: () => carekeyRequest<PatientRiskFactor[]>("/health-data/risk-factors", user!),
+  });
+  const assessmentInputs = useQuery({
+    queryKey: ["patient-assessment-inputs", user?.id], enabled: !!user,
+    queryFn: () => carekeyRequest<PatientAssessmentInput[]>("/health-data/assessment-inputs", user!),
   });
   const documents = useQuery({
     queryKey: ["documents", user?.id], enabled: !!user,
@@ -153,6 +165,30 @@ function HealthDataPage() {
     } catch (error) { toast.error(error instanceof Error ? error.message : "Could not confirm information"); }
   }
 
+  async function addIdrsInput(event: React.FormEvent) {
+    event.preventDefault();
+    if (!user || !idrsObservedAt) return toast.error("Enter when this information was true");
+    setBusy(true);
+    try {
+      await carekeyRequest("/health-data/assessment-inputs", user, { method: "POST", body: JSON.stringify({
+        input_key: idrsInputKey, value: idrsInputValue,
+        observed_at: new Date(idrsObservedAt).toISOString(), source_type: "patient_reported",
+      }) });
+      await qc.invalidateQueries({ queryKey: ["patient-assessment-inputs", user.id] });
+      toast.success("IDRS information saved. Confirm it below before it can be used.");
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not save IDRS information"); }
+    finally { setBusy(false); }
+  }
+
+  async function verifyIdrsInput(id: string) {
+    if (!user) return;
+    try {
+      await carekeyRequest(`/health-data/assessment-inputs/${id}/verify`, user, { method: "POST" });
+      await qc.invalidateQueries({ queryKey: ["patient-assessment-inputs", user.id] });
+      toast.success("IDRS information confirmed");
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not confirm IDRS information"); }
+  }
+
   async function verifyMeasurement(id: string) {
     if (!user) return;
     try {
@@ -204,6 +240,20 @@ function HealthDataPage() {
             <span>{row.factor_key === "current_smoking" ? "Current smoking" : "Diabetes"}: <strong>{row.value ? "Yes" : "No"}</strong><span className="block text-xs text-muted-foreground">{new Date(row.observed_at).toLocaleString()} · {row.source_type.replaceAll("_", " ")}</span></span>
             <div className="flex items-center gap-2"><Badge variant="outline">{row.verification_status}</Badge>{row.verification_status === "unverified" ? <Button size="sm" variant="outline" onClick={() => void verifyRiskFactor(row.id)}>Confirm</Button> : null}<Button size="sm" variant="ghost" onClick={() => void remove("/health-data/risk-factors", row.id, "patient-risk-factors")}>Delete</Button></div>
           </div>)}{!riskFactors.data?.length ? <p className="p-3 text-xs text-muted-foreground">No smoking or diabetes status recorded.</p> : null}</div>
+        </div>
+        <div className="space-y-3 rounded-md border p-4">
+          <h2 className="font-semibold">IDRS screening inputs</h2>
+          <p className="text-xs text-muted-foreground">The original IDRS asks about regular leisure exercise and strenuous work, and diabetes in parents. These are screening inputs, not a diagnosis. Entries are patient-reported and must be confirmed before use.</p>
+          <form className="grid gap-3 sm:grid-cols-2" onSubmit={addIdrsInput}>
+            <div className="space-y-1.5"><Label>Information</Label><Select value={idrsInputKey} onValueChange={(v) => { const key = v as PatientAssessmentInput["input_key"]; setIdrsInputKey(key); setIdrsInputValue(key === "idrs_physical_activity" ? "both" : "none"); }}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="idrs_physical_activity">Physical activity</SelectItem><SelectItem value="idrs_parental_diabetes">Diabetes in parents</SelectItem></SelectContent></Select></div>
+            <div className="space-y-1.5"><Label>{idrsInputKey === "idrs_physical_activity" ? "Which best describes you?" : "Diabetes in your parents"}</Label><Select value={idrsInputValue} onValueChange={setIdrsInputValue}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{idrsInputKey === "idrs_physical_activity" ? <><SelectItem value="both">Regular exercise and strenuous work</SelectItem><SelectItem value="either">Either regular exercise or strenuous work</SelectItem><SelectItem value="neither">Neither regular exercise nor strenuous work</SelectItem></> : <><SelectItem value="none">Neither parent</SelectItem><SelectItem value="one_parent">One parent</SelectItem><SelectItem value="both_parents">Both parents</SelectItem></>}</SelectContent></Select></div>
+            <div className="space-y-1.5 sm:col-span-2"><Label>Date and time this information was true</Label><Input required type="datetime-local" value={idrsObservedAt} onChange={(e) => setIdrsObservedAt(e.target.value)} /></div>
+            <Button type="submit" disabled={busy}>Save IDRS information</Button>
+          </form>
+          <div className="divide-y rounded-md border">{(assessmentInputs.data ?? []).map((row) => <div key={row.id} className="flex flex-wrap items-center justify-between gap-2 p-3 text-sm">
+            <span>{row.input_key === "idrs_physical_activity" ? "Physical activity" : "Diabetes in parents"}: <strong>{({ both: "exercise + strenuous work", either: "exercise or strenuous work", neither: "neither", none: "neither parent", one_parent: "one parent", both_parents: "both parents" } as Record<string, string>)[row.value] ?? row.value}</strong><span className="block text-xs text-muted-foreground">{new Date(row.observed_at).toLocaleString()} · {row.source_type.replaceAll("_", " ")}</span></span>
+            <div className="flex items-center gap-2"><Badge variant="outline">{row.verification_status}</Badge>{row.verification_status === "unverified" ? <Button size="sm" variant="outline" onClick={() => void verifyIdrsInput(row.id)}>Confirm</Button> : null}<Button size="sm" variant="ghost" onClick={() => void remove("/health-data/assessment-inputs", row.id, "patient-assessment-inputs")}>Delete</Button></div>
+          </div>)}{!assessmentInputs.data?.length ? <p className="p-3 text-xs text-muted-foreground">No IDRS information recorded.</p> : null}</div>
         </div>
         <h2 className="font-semibold">Add a measurement</h2>
         <form className="space-y-3" onSubmit={addMeasurement}>

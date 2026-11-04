@@ -25,8 +25,8 @@ class _Db:
         self.hospital = Hospital(id=uuid4(), name="CareKey Hospital", hospital_code="HOS-1234ABCD", latitude=12.9, longitude=77.6)
         self.profile = Profile(id=consent.provider_id, full_name="Dr Test")
         self.assessment = HealthAssessment(
-            id=uuid4(), patient_id=consent.patient_id, model_key="prevent_cvd", model_version="test",
-            status="completed", result={"risk": 5.2}, contributing_factors=[], missing_information=[],
+            id=uuid4(), patient_id=consent.patient_id, model_key="idrs_type2_diabetes", model_version="mdrf-idrs-original-2005",
+            status="complete", result={"idrs_score": 60, "maximum_score": 100, "screening_category": "high", "assessment_type": "screening"}, contributing_factors=[], missing_information=[],
             source_references=[], input_snapshot={}, assessed_at=datetime.now(timezone.utc),
         )
         self.added = []
@@ -55,7 +55,8 @@ def test_doctor_can_read_assessments_only_with_active_assessment_consent():
     consent = _consent(["health_assessments"])
     db = _Db(consent)
     rows = read_consented_assessments(consent.id, db, _doctor(consent))
-    assert rows[0]["model_key"] == "prevent_cvd"
+    assert rows[0]["model_key"] == "idrs_type2_diabetes"
+    assert rows[0]["result"]["screening_category"] == "high"
     assert any(isinstance(row, AccessLog) and row.access_type == "health_assessment" and row.success for row in db.added)
 
 

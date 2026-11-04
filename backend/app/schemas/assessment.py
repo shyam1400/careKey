@@ -17,6 +17,10 @@ class AssessmentToolResponse(BaseModel):
     source_url: str
     license_status: str
     availability: str
+    minimum_age: int | None = None
+    maximum_age: int | None = None
+    chart_minimum_age: int | None = None
+    chart_maximum_age: int | None = None
 
 
 class HealthAssessmentResponse(BaseModel):

@@ -9,7 +9,7 @@ from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.enums import AppRole
 from app.models.audit import AccessLog
-from app.models.health_data import HealthAssessment, HealthMeasurement, PatientRiskFactor
+from app.models.health_data import HealthAssessment, HealthMeasurement, PatientAssessmentInput, PatientRiskFactor
 from app.models.patient import Patient
 from app.models.profile import Profile
 from app.models.records import Condition
@@ -51,6 +51,8 @@ def list_assessment_models(user: User = Depends(get_current_user)):
         intended_use=tool.intended_use, validated_population=tool.validated_population,
         required_inputs=list(tool.required_inputs), limitations=list(tool.limitations),
         source_url=tool.source_url, license_status=tool.license_status, availability=tool.availability,
+        minimum_age=tool.minimum_age, maximum_age=tool.maximum_age,
+        chart_minimum_age=tool.chart_minimum_age, chart_maximum_age=tool.chart_maximum_age,
     ) for tool in TOOLS.values()]
 
 
@@ -85,6 +87,8 @@ def generate_assessment(model_key: str, db: Session = Depends(get_db), user: Use
         raise HTTPException(status_code=404, detail="Assessment model not found")
     if model_key == "who_2019_south_asia_cvd":
         return _generate_who_cvd_assessment(db, user, patient_id)
+    if model_key == "idrs_type2_diabetes":
+        return _generate_idrs_assessment(db, user, patient_id)
     try:
         run_calculator(model_key, {})
     except KeyError:
@@ -117,8 +121,11 @@ def _generate_who_cvd_assessment(db: Session, user: User, patient_id: UUID) -> H
         snapshot["date_of_birth"] = patient.date_of_birth.isoformat()
         snapshot["age_at_assessment"] = age
         references.append({"record_type": "patient_profile", "record_id": str(patient.id), "field": "date_of_birth"})
-        if age < 40 or age > 74:
-            missing.append("age outside WHO chart range (40–74)")
+        model = TOOLS["who_2019_south_asia_cvd"]
+        if (model.minimum_age is not None and age < model.minimum_age) or (model.maximum_age is not None and age > model.maximum_age):
+            missing.append(f"not eligible: WHO 2019 model age range is {model.minimum_age}–{model.maximum_age}")
+        elif (model.chart_minimum_age is not None and age < model.chart_minimum_age) or (model.chart_maximum_age is not None and age > model.chart_maximum_age):
+            missing.append(f"chart unavailable: the published South Asia chart has no exact age band for ages outside {model.chart_minimum_age}–{model.chart_maximum_age}; no category was generated")
 
     sex = (patient.gender or "").strip().lower()
     if sex not in ("male", "female"):
@@ -184,7 +191,15 @@ def _generate_who_cvd_assessment(db: Session, user: User, patient_id: UUID) -> H
     result = None
     factors: list[dict] = []
     status = "insufficient_data" if missing else "complete"
+    if any(item.startswith("not eligible:") for item in missing) or established_cvd:
+        status = "not_eligible"
+    elif any(item.startswith("chart unavailable:") for item in missing):
+        status = "unavailable"
     summary = "No risk category was generated. Complete or verify the listed information before running this assessment."
+    if status == "not_eligible":
+        summary = "No risk category was generated because this patient is outside the WHO model eligibility rules. This is unavailable, not a low-risk result."
+    elif status == "unavailable":
+        summary = "No category was generated because the published South Asia chart has no exact row for this age. This is unavailable, not a low-risk result."
     if not missing:
         try:
             cell = lookup_who_south_asia(
@@ -228,4 +243,116 @@ def _generate_who_cvd_assessment(db: Session, user: User, patient_id: UUID) -> H
     db.commit()
     db.refresh(assessment)
     _audit(db, patient_id, user, "WHO cardiovascular risk chart assessment generated", success=result is not None, model_key="who_2019_south_asia_cvd")
+    return assessment
+
+
+def _generate_idrs_assessment(db: Session, user: User, patient_id: UUID) -> HealthAssessment:
+    assessed_at = datetime.now(timezone.utc)
+    patient = db.scalar(select(Patient).where(Patient.id == patient_id))
+    if patient is None:
+        _audit(db, patient_id, user, "IDRS screening blocked: patient profile missing", success=False, model_key="idrs_type2_diabetes")
+        raise HTTPException(status_code=404, detail="Patient profile not found")
+
+    missing: list[str] = []
+    inputs: dict = {}
+    snapshot: dict = {"source": "https://repository.ias.ac.in/80170/1/80170.pdf"}
+    references: list[dict] = [{"record_type": "published_method", "url": "https://repository.ias.ac.in/80170/1/80170.pdf", "version": "mdrf-idrs-original-2005"}]
+    today = assessed_at.date()
+    if patient.date_of_birth is None:
+        missing.append("date_of_birth")
+    else:
+        age = today.year - patient.date_of_birth.year - ((today.month, today.day) < (patient.date_of_birth.month, patient.date_of_birth.day))
+        inputs["age"] = age
+        snapshot["date_of_birth"] = patient.date_of_birth.isoformat()
+        snapshot["age_at_assessment"] = age
+        references.append({"record_type": "patient_profile", "record_id": str(patient.id), "field": "date_of_birth"})
+        idrs_tool = TOOLS["idrs_type2_diabetes"]
+        if (idrs_tool.minimum_age is not None and age < idrs_tool.minimum_age) or (idrs_tool.maximum_age is not None and age > idrs_tool.maximum_age):
+            age_range = f"{idrs_tool.minimum_age}+" if idrs_tool.maximum_age is None else f"{idrs_tool.minimum_age}–{idrs_tool.maximum_age}"
+            missing.append(f"not eligible: original IDRS derivation population age range is {age_range}")
+
+    sex = (patient.gender or "").strip().lower()
+    if sex not in ("male", "female"):
+        missing.append("sex (original IDRS uses sex-specific waist cut-offs)")
+    else:
+        inputs["sex"] = sex
+        references.append({"record_type": "patient_profile", "record_id": str(patient.id), "field": "gender"})
+
+    verified_measurements = db.scalars(select(HealthMeasurement).where(
+        HealthMeasurement.patient_id == patient_id,
+        HealthMeasurement.verification_status == "verified",
+        HealthMeasurement.measurement_type == "waist_circumference",
+    ).order_by(HealthMeasurement.observed_at.desc())).all()
+    measurement = verified_measurements[0] if verified_measurements else None
+    if measurement is None:
+        missing.append("verified waist circumference")
+    elif measurement.unit != "cm" or not 30 <= float(measurement.value) <= 250:
+        missing.append("waist circumference (must be a valid measurement in cm)")
+    else:
+        inputs["waist_circumference_cm"] = float(measurement.value)
+        snapshot["waist_circumference"] = {"value": str(measurement.value), "unit": measurement.unit, "observed_at": measurement.observed_at.isoformat(), "source_type": measurement.source_type}
+        references.append({"record_type": "health_measurement", "record_id": str(measurement.id), "measurement_type": "waist_circumference", "observed_at": measurement.observed_at.isoformat(), "source_type": measurement.source_type, "source_document_id": str(measurement.source_document_id) if measurement.source_document_id else None})
+
+    verified_inputs = db.scalars(select(PatientAssessmentInput).where(
+        PatientAssessmentInput.patient_id == patient_id,
+        PatientAssessmentInput.verification_status == "verified",
+        PatientAssessmentInput.input_key.in_(("idrs_physical_activity", "idrs_parental_diabetes")),
+    ).order_by(PatientAssessmentInput.observed_at.desc())).all()
+    latest: dict[str, PatientAssessmentInput] = {}
+    for row in verified_inputs:
+        latest.setdefault(row.input_key, row)
+    for key, input_name in (("idrs_physical_activity", "physical_activity"), ("idrs_parental_diabetes", "parental_diabetes")):
+        row = latest.get(key)
+        if row is None:
+            missing.append(key)
+            continue
+        inputs[input_name] = row.value
+        snapshot[key] = {"value": row.value, "observed_at": row.observed_at.isoformat(), "source_type": row.source_type}
+        references.append({"record_type": "patient_assessment_input", "record_id": str(row.id), "input_key": key, "observed_at": row.observed_at.isoformat(), "source_type": row.source_type, "source_document_id": str(row.source_document_id) if row.source_document_id else None})
+
+    conditions = db.scalars(select(Condition).where(Condition.patient_id == patient_id, Condition.status == "active")).all()
+    diagnosed_diabetes = [
+        condition.name for condition in conditions
+        if "diabetes" in condition.name.lower()
+        and "prediabetes" not in condition.name.lower()
+        and "pre-diabetes" not in condition.name.lower()
+    ]
+    diabetes_rows = db.scalars(select(PatientRiskFactor).where(
+        PatientRiskFactor.patient_id == patient_id,
+        PatientRiskFactor.factor_key == "diabetes_status",
+        PatientRiskFactor.verification_status == "verified",
+    ).order_by(PatientRiskFactor.observed_at.desc())).all()
+    if diagnosed_diabetes or (diabetes_rows and diabetes_rows[0].value):
+        missing.append("not eligible: this tool screens for previously undiagnosed diabetes")
+
+    result = None
+    factors: list[dict] = []
+    status = "insufficient_data" if missing else "complete"
+    summary = "No IDRS score was generated. Complete and confirm the listed information first."
+    if any(item.startswith("not eligible:") for item in missing):
+        status = "not_eligible"
+        summary = "No IDRS screening score was generated because this tool screens for previously undiagnosed diabetes and the patient is not eligible. This is not a low-risk result."
+    elif not missing:
+        try:
+            output = run_calculator("idrs_type2_diabetes", inputs)
+        except (KeyError, TypeError, ValueError) as exc:
+            status = "insufficient_data"
+            missing.append(f"IDRS inputs invalid: {str(exc)}")
+        else:
+            result = output.result
+            factors = output.contributing_factors
+            summary = output.summary
+            snapshot.update(output.input_snapshot)
+            status = output.status
+
+    assessment = HealthAssessment(
+        patient_id=patient_id, model_key="idrs_type2_diabetes", model_version="mdrf-idrs-original-2005",
+        status=status, result=result, contributing_factors=factors,
+        missing_information=missing, source_references=references,
+        input_snapshot=snapshot, summary=summary, assessed_at=assessed_at,
+    )
+    db.add(assessment)
+    db.commit()
+    db.refresh(assessment)
+    _audit(db, patient_id, user, "IDRS diabetes screening generated", success=result is not None, model_key="idrs_type2_diabetes")
     return assessment
