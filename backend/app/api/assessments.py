@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import math
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -14,9 +15,10 @@ from app.models.patient import Patient
 from app.models.profile import Profile
 from app.models.records import Condition
 from app.models.user import User
-from app.schemas.assessment import AssessmentToolResponse, HealthAssessmentResponse
+from app.schemas.assessment import AssessmentToolResponse, HealthAssessmentResponse, TrainedAssessmentRequest
 from app.services.assessment_engine import TOOLS, run_calculator
 from app.services.who_cvd_2019 import WHO_CHART_SOURCE, WHO_CHART_VERSION, lookup_who_south_asia
+from app.services.trained_models import MODEL_LIMITATIONS, ModelUnavailable, SPECS, model_available, predict as predict_trained_model, validate_inputs
 
 router = APIRouter(prefix="/health-assessments", tags=["health-assessments"])
 
@@ -46,14 +48,23 @@ def _patient_id(user: User, db: Session) -> UUID:
 def list_assessment_models(user: User = Depends(get_current_user)):
     if user.role != AppRole.PATIENT:
         raise HTTPException(status_code=403, detail="Only patients can view assessment models")
-    return [AssessmentToolResponse(
-        key=tool.key, name=tool.name, category=tool.category, version=tool.version,
-        intended_use=tool.intended_use, validated_population=tool.validated_population,
-        required_inputs=list(tool.required_inputs), limitations=list(tool.limitations),
-        source_url=tool.source_url, license_status=tool.license_status, availability=tool.availability,
-        minimum_age=tool.minimum_age, maximum_age=tool.maximum_age,
-        chart_minimum_age=tool.chart_minimum_age, chart_maximum_age=tool.chart_maximum_age,
-    ) for tool in TOOLS.values()]
+    responses = []
+    for key, spec in SPECS.items():
+        limitations = list(MODEL_LIMITATIONS)
+        if key in {"diabetes_brfss", "heart_disease_brfss"}:
+            limitations.append("The BRFSS models use U.S. survey features and are not validated for Indian or CareKey patients.")
+        responses.append(AssessmentToolResponse(
+        key=key, name=spec.name, category=spec.category, version=spec.version,
+        intended_use=spec.purpose, validated_population="General adult screening prototype; not clinically validated for CareKey users",
+        required_inputs=list(spec.features), limitations=limitations,
+        source_url="https://www.cdc.gov/brfss/" if key != "lung_cancer_survey" else "",
+        license_status="Local project artifact; research/educational use only",
+        availability="enabled" if model_available(key) else "disabled",
+        input_schema=list(spec.field_specs), defaults=spec.defaults,
+        dataset=spec.dataset, metrics=spec.metrics,
+        availability_reason=None if model_available(key) else "Model weights or inference runtime are unavailable or failed the inference check.",
+        ))
+    return responses
 
 
 @router.get("/history", response_model=list[HealthAssessmentResponse])
@@ -79,8 +90,18 @@ def read_my_assessment(assessment_id: UUID, db: Session = Depends(get_db), user:
 
 
 @router.post("/{model_key}/run", response_model=HealthAssessmentResponse)
-def generate_assessment(model_key: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def generate_assessment(
+    model_key: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+    payload: TrainedAssessmentRequest | None = None,
+):
     patient_id = _patient_id(user, db)
+    if model_key in SPECS:
+        if payload is None or not payload.patient_confirmed:
+            _audit(db, patient_id, user, "Trained assessment rejected: confirmation missing", success=False, model_key=model_key)
+            raise HTTPException(status_code=422, detail="Review and confirm all assessment inputs before continuing")
+        return _generate_trained_assessment(model_key, payload, db, user, patient_id)
     tool = TOOLS.get(model_key)
     if tool is None:
         _audit(db, patient_id, user, "Health assessment generation attempted for unknown model", success=False, model_key=model_key)
@@ -98,6 +119,97 @@ def generate_assessment(model_key: str, db: Session = Depends(get_db), user: Use
         _audit(db, patient_id, user, "Health assessment generation blocked", success=False, model_key=model_key)
         raise HTTPException(status_code=409, detail=str(exc)) from None
     raise HTTPException(status_code=422, detail="Assessment inputs are not yet available")
+
+
+def _generate_trained_assessment(model_key: str, payload: TrainedAssessmentRequest, db: Session, user: User, patient_id: UUID) -> HealthAssessment:
+    spec = SPECS[model_key]
+    try:
+        inputs = validate_inputs(model_key, payload.inputs)
+        if not set(payload.defaulted_inputs).issubset(spec.features):
+            raise ValueError("Defaulted field list does not match this assessment")
+        if any(inputs[name] != spec.defaults[name] for name in payload.defaulted_inputs):
+            raise ValueError("A field marked as defaulted must use the documented model default")
+        result = predict_trained_model(model_key, inputs)
+    except ModelUnavailable as exc:
+        _audit(db, patient_id, user, "Trained model inference failed", success=False, model_key=model_key)
+        raise HTTPException(status_code=503, detail="This model is temporarily unavailable; no result was saved") from exc
+    except (TypeError, ValueError, KeyError) as exc:
+        _audit(db, patient_id, user, "Trained assessment rejected invalid inputs", success=False, model_key=model_key)
+        raise HTTPException(status_code=422, detail="One or more assessment inputs are invalid") from exc
+
+    assessed_at = datetime.now(timezone.utc)
+    version = spec.version
+    defaulted = set(payload.defaulted_inputs)
+    source_by_feature = {
+        name: ({"source_type": "documented_model_default", "verification_status": "patient_selected_default"} if name in defaulted else
+               {"source_type": "patient_confirmed", "verification_status": "patient_confirmed_at_run_time", "observed_at": assessed_at.isoformat()})
+        for name in spec.features
+    }
+    source_references = [{
+        "record_type": "local_model_artifacts", "model_file": spec.model_file,
+        "scaler_file": spec.scaler_file, "version": version,
+        "dataset": spec.dataset, "evaluation_metrics": spec.metrics,
+    }]
+    patient = db.scalar(select(Patient).where(Patient.id == patient_id))
+    if patient and patient.date_of_birth:
+        today = assessed_at.date()
+        age = today.year - patient.date_of_birth.year - ((today.month, today.day) < (patient.date_of_birth.month, patient.date_of_birth.day))
+        if "AGE" in inputs and "AGE" not in defaulted and inputs["AGE"] == age:
+            source_by_feature["AGE"] = {"source_type": "patient_profile", "field": "date_of_birth", "value_date": patient.date_of_birth.isoformat()}
+        if "Age" in inputs and "Age" not in defaulted and 18 <= age <= 120:
+            age_band = age <= 24 and 1 or age <= 29 and 2 or age <= 34 and 3 or age <= 39 and 4 or age <= 44 and 5 or age <= 49 and 6 or age <= 54 and 7 or age <= 59 and 8 or age <= 64 and 9 or age <= 69 and 10 or age <= 74 and 11 or age <= 79 and 12 or 13
+            if inputs["Age"] == age_band:
+                source_by_feature["Age"] = {"source_type": "patient_profile", "field": "date_of_birth", "value_date": patient.date_of_birth.isoformat(), "encoding": age_band}
+        sex = (patient.gender or "").lower()
+        for feature in ("Sex", "GENDER"):
+            if feature in inputs and feature not in defaulted and sex in {"female", "male"} and inputs[feature] == (0 if sex == "female" else 1):
+                source_by_feature[feature] = {"source_type": "patient_profile", "field": "gender", "observed_at": assessed_at.isoformat()}
+    if "BMI" in inputs and "BMI" not in defaulted:
+        bmi_records = db.scalars(select(HealthMeasurement).where(
+            HealthMeasurement.patient_id == patient_id,
+            HealthMeasurement.measurement_type == "bmi",
+            HealthMeasurement.verification_status == "verified",
+        ).order_by(HealthMeasurement.observed_at.desc())).all()
+        bmi_record = next((row for row in bmi_records if math.isclose(float(row.value), float(inputs["BMI"]), abs_tol=0.01)), None)
+        if bmi_record:
+            source_by_feature["BMI"] = {"source_type": "verified_health_measurement", "record_id": str(bmi_record.id), "observed_at": bmi_record.observed_at.isoformat(), "unit": bmi_record.unit}
+            source_references.append({"record_type": "health_measurement", "record_id": str(bmi_record.id), "measurement_type": "bmi", "observed_at": bmi_record.observed_at.isoformat()})
+    if "Diabetes_binary" in inputs and "Diabetes_binary" not in defaulted:
+        diabetes_records = db.scalars(select(PatientRiskFactor).where(
+            PatientRiskFactor.patient_id == patient_id,
+            PatientRiskFactor.factor_key == "diabetes_status",
+            PatientRiskFactor.verification_status == "verified",
+        ).order_by(PatientRiskFactor.observed_at.desc())).all()
+        diabetes_record = next((row for row in diabetes_records if int(row.value) == int(inputs["Diabetes_binary"])), None)
+        if diabetes_record:
+            source_by_feature["Diabetes_binary"] = {"source_type": "verified_patient_risk_factor", "record_id": str(diabetes_record.id), "observed_at": diabetes_record.observed_at.isoformat()}
+            source_references.append({"record_type": "patient_risk_factor", "record_id": str(diabetes_record.id), "factor_key": "diabetes_status", "observed_at": diabetes_record.observed_at.isoformat()})
+    summary = (
+        f"Experimental model output: {result['category'].replace('_', ' ')}; sigmoid output {result['sigmoid_output']:.3f} "
+        "at the supplied 0.5 threshold. This is not a diagnosis or a calibrated clinical risk estimate. "
+        "A low output does not rule out disease. Review health concerns with a qualified clinician."
+    )
+    assessment = HealthAssessment(
+        patient_id=patient_id, model_key=model_key, model_version=version,
+        status="complete", result=result,
+        contributing_factors=[{"label": field["label"], "value": inputs[field["name"]]} for field in spec.field_specs],
+        missing_information=[],
+        source_references=source_references,
+        input_snapshot={
+            "inputs": inputs, "feature_order": list(spec.features),
+            "patient_confirmed": True, "input_verification_status": "patient_confirmed_at_run_time",
+            "input_source": "patient_reviewed_or_explicitly_defaulted",
+            "source_by_feature": source_by_feature,
+            "defaulted_inputs": sorted(payload.defaulted_inputs),
+            "model_version": version,
+        },
+        summary=summary, assessed_at=assessed_at,
+    )
+    db.add(assessment)
+    db.commit()
+    db.refresh(assessment)
+    _audit(db, patient_id, user, "Experimental trained-model assessment generated", success=True, model_key=model_key)
+    return assessment
 
 
 def _generate_who_cvd_assessment(db: Session, user: User, patient_id: UUID) -> HealthAssessment:

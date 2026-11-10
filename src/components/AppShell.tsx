@@ -10,7 +10,6 @@ const patientNav = [
   { to: "/dashboard", label: "Dashboard" },
   { to: "/profile", label: "Medical profile" },
   { to: "/records", label: "Records" },
-  { to: "/health-data", label: "Health data" },
   { to: "/health-insights", label: "Health insights" },
   { to: "/share", label: "Sharing" },
   { to: "/qr", label: "Emergency QR" },
@@ -42,7 +41,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen bg-background">
       <div className="bg-warning-soft px-4 py-1.5 text-center text-xs font-medium text-warning-foreground">
-        Research Prototype — Not for Clinical Use. All data is synthetic.
+        Academic prototype — experimental assessments are not medical advice or a substitute for a qualified clinician.
       </div>
       <header className="sticky top-0 z-40 border-b bg-card/95 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-card/85">
         <div className="mx-auto max-w-6xl px-4">

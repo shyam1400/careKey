@@ -5,6 +5,7 @@ from typing import Any, Callable
 
 from app.services.who_cvd_2019 import WHO_CHART_SOURCE, WHO_CHART_VERSION, lookup_who_south_asia
 from app.services.idrs_2005 import IDRS_SOURCE, IDRS_VERSION, calculate_idrs
+from app.services.trained_models import MODEL_LIMITATIONS, SPECS, predict as predict_trained_model, validate_inputs
 
 
 @dataclass(frozen=True)
@@ -20,6 +21,10 @@ class AssessmentTool:
     source_url: str
     license_status: str
     availability: str
+    input_schema: tuple[dict[str, Any], ...] = ()
+    defaults: dict[str, int | float] | None = None
+    dataset: str | None = None
+    metrics: str | None = None
     minimum_age: int | None = None
     maximum_age: int | None = None
     chart_minimum_age: int | None = None
@@ -101,7 +106,50 @@ TOOLS: dict[str, AssessmentTool] = {
         source_url="https://bcrisktool.cancer.gov/about.html",
         license_status="agreement_and_use_review_required", availability="disabled",
     ),
+    "sybil_lung_cancer": AssessmentTool(
+        key="sybil_lung_cancer", name="Sybil lung cancer risk model", category="lung_cancer",
+        version="official-release-check-required", intended_use="Research prototype: future lung cancer risk from one low-dose axial chest CT; not diagnosis",
+        validated_population="NLST development cohort, with external validation at MGH (United States) and CGMH (Taiwan); not established for India",
+        required_inputs=("one complete axial low-dose chest CT DICOM series", "official pretrained checkpoint"),
+        limitations=(
+            "Research only; the model authors do not intend the code for clinical decision-making.",
+            "The repository code is MIT licensed, but checkpoint-specific licensing and release terms have not been independently established for CareKey.",
+            "NLST source data are controlled-access and are not bundled; the public model checkpoint is not NLST data.",
+            "No Indian population validation; CareKey has no imaging upload or verified inference pipeline for this model.",
+        ),
+        source_url="https://github.com/reginabarzilaygroup/Sybil",
+        license_status="checkpoint_terms_and_inference_environment_review_required",
+        availability="disabled",
+    ),
+    "mirai_breast_cancer": AssessmentTool(
+        key="mirai_breast_cancer", name="Mirai breast cancer risk model", category="breast_cancer",
+        version="official-release-check-required", intended_use="Research prototype: future breast cancer risk from four-view screening mammography; not diagnosis",
+        validated_population="MGH (United States), Karolinska (Sweden), and Chang Gung Memorial Hospital (Taiwan); not established for India",
+        required_inputs=("L CC For Presentation mammogram", "L MLO For Presentation mammogram", "R CC For Presentation mammogram", "R MLO For Presentation mammogram", "official pretrained checkpoints"),
+        limitations=(
+            "The official MIT repository says the codebase is for research and is not intended for clinical decision-making or other clinical use.",
+            "The repository states that the trained model and code are MIT licensed; the named OncoServe image/checkpoint package and its distribution terms still require confirmation before deployment.",
+            "Requires four standard For Presentation views; it does not support unilateral exams, For Processing images, or marked-up images.",
+            "The authors report testing on Hologic Selenia/Selenia Dimensions devices; performance on other devices is unestablished.",
+            "No Indian population validation; CareKey has no mammography upload or verified inference pipeline for this model.",
+        ),
+        source_url="https://github.com/yala/Mirai",
+        license_status="research_code_mit_checkpoint_package_review_required",
+        availability="disabled",
+    ),
 }
+
+for _key, _spec in SPECS.items():
+    TOOLS[_key] = AssessmentTool(
+        key=_key, name=_spec.name, category=_spec.category, version=_spec.version,
+        intended_use=_spec.purpose, validated_population="General adult screening prototype; not clinically validated for CareKey users",
+        required_inputs=_spec.features, limitations=MODEL_LIMITATIONS,
+        source_url="https://www.cdc.gov/brfss/" if _key != "lung_cancer_survey" else "",
+        license_status="Local project artifact; research/educational use only",
+        availability="enabled",
+        input_schema=_spec.field_specs, defaults=_spec.defaults,
+        dataset=_spec.dataset, metrics=_spec.metrics,
+    )
 
 def _who_south_asia_calculator(inputs: dict[str, Any]) -> AssessmentOutput:
     cell = lookup_who_south_asia(
@@ -172,6 +220,28 @@ CALCULATORS: dict[str, Calculator] = {
     "who_2019_south_asia_cvd": _who_south_asia_calculator,
     "idrs_type2_diabetes": _idrs_calculator,
 }
+
+
+def _trained_model_calculator(model_key: str) -> Calculator:
+    spec = SPECS[model_key]
+
+    def calculate(inputs: dict[str, Any]) -> AssessmentOutput:
+        checked = validate_inputs(model_key, inputs)
+        result = predict_trained_model(model_key, checked)
+        return AssessmentOutput(
+            status="complete", result=result,
+            contributing_factors=[{"label": field["label"], "value": checked[field["name"]]} for field in spec.field_specs],
+            missing_information=[],
+            source_references=[{"record_type": "local_model_artifacts", "model_file": spec.model_file, "scaler_file": spec.scaler_file, "version": spec.version, "dataset": spec.dataset, "evaluation_metrics": spec.metrics}],
+            input_snapshot={"inputs": checked, "feature_order": list(spec.features), "model_version": spec.version},
+            summary=f"Experimental model output: {result['category'].replace('_', ' ')} at a 0.5 threshold. It is not a diagnosis or calibrated clinical risk estimate; a low output does not rule out disease.",
+        )
+
+    return calculate
+
+
+for _model_key in SPECS:
+    CALCULATORS[_model_key] = _trained_model_calculator(_model_key)
 
 
 def register_calculator(model_key: str, calculator: Calculator) -> None:

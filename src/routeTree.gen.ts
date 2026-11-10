@@ -15,7 +15,6 @@ import { Route as AuthRouteImport } from './routes/auth'
 import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as DoctorRouteImport } from './routes/doctor'
 import { Route as EmergencyRouteImport } from './routes/emergency'
-import { Route as HealthDataRouteImport } from './routes/health-data'
 import { Route as HealthInsightsRouteImport } from './routes/health-insights'
 import { Route as HistoryRouteImport } from './routes/history'
 import { Route as HospitalAccountRouteImport } from './routes/hospital-account'
@@ -53,11 +52,6 @@ const DoctorRoute = DoctorRouteImport.update({
 const EmergencyRoute = EmergencyRouteImport.update({
   id: '/emergency',
   path: '/emergency',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const HealthDataRoute = HealthDataRouteImport.update({
-  id: '/health-data',
-  path: '/health-data',
   getParentRoute: () => rootRouteImport,
 } as any)
 const HealthInsightsRoute = HealthInsightsRouteImport.update({
@@ -108,7 +102,6 @@ export interface FileRoutesByFullPath {
   '/dashboard': typeof DashboardRoute
   '/doctor': typeof DoctorRoute
   '/emergency': typeof EmergencyRoute
-  '/health-data': typeof HealthDataRoute
   '/health-insights': typeof HealthInsightsRoute
   '/history': typeof HistoryRoute
   '/hospital-account': typeof HospitalAccountRoute
@@ -125,7 +118,6 @@ export interface FileRoutesByTo {
   '/dashboard': typeof DashboardRoute
   '/doctor': typeof DoctorRoute
   '/emergency': typeof EmergencyRoute
-  '/health-data': typeof HealthDataRoute
   '/health-insights': typeof HealthInsightsRoute
   '/history': typeof HistoryRoute
   '/hospital-account': typeof HospitalAccountRoute
@@ -143,7 +135,6 @@ export interface FileRoutesById {
   '/dashboard': typeof DashboardRoute
   '/doctor': typeof DoctorRoute
   '/emergency': typeof EmergencyRoute
-  '/health-data': typeof HealthDataRoute
   '/health-insights': typeof HealthInsightsRoute
   '/history': typeof HistoryRoute
   '/hospital-account': typeof HospitalAccountRoute
@@ -162,7 +153,6 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/doctor'
     | '/emergency'
-    | '/health-data'
     | '/health-insights'
     | '/history'
     | '/hospital-account'
@@ -179,7 +169,6 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/doctor'
     | '/emergency'
-    | '/health-data'
     | '/health-insights'
     | '/history'
     | '/hospital-account'
@@ -196,7 +185,6 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/doctor'
     | '/emergency'
-    | '/health-data'
     | '/health-insights'
     | '/history'
     | '/hospital-account'
@@ -214,7 +202,6 @@ export interface RootRouteChildren {
   DashboardRoute: typeof DashboardRoute
   DoctorRoute: typeof DoctorRoute
   EmergencyRoute: typeof EmergencyRoute
-  HealthDataRoute: typeof HealthDataRoute
   HealthInsightsRoute: typeof HealthInsightsRoute
   HistoryRoute: typeof HistoryRoute
   HospitalAccountRoute: typeof HospitalAccountRoute
@@ -267,13 +254,6 @@ declare module '@tanstack/react-router' {
       path: '/emergency'
       fullPath: '/emergency'
       preLoaderRoute: typeof EmergencyRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/health-data': {
-      id: '/health-data'
-      path: '/health-data'
-      fullPath: '/health-data'
-      preLoaderRoute: typeof HealthDataRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/health-insights': {
@@ -342,7 +322,6 @@ const rootRouteChildren: RootRouteChildren = {
   DashboardRoute: DashboardRoute,
   DoctorRoute: DoctorRoute,
   EmergencyRoute: EmergencyRoute,
-  HealthDataRoute: HealthDataRoute,
   HealthInsightsRoute: HealthInsightsRoute,
   HistoryRoute: HistoryRoute,
   HospitalAccountRoute: HospitalAccountRoute,

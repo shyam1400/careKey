@@ -13,8 +13,9 @@ from app.services.assessment_engine import TOOLS, run_calculator
 
 
 def test_initial_tools_have_population_license_and_use_gates():
-    assert set(TOOLS) == {"prevent_cvd", "idrs_type2_diabetes", "qdiabetes_2018", "bcrat_breast_cancer", "who_2019_south_asia_cvd"}
-    assert all(tool.availability == "disabled" for key, tool in TOOLS.items() if key not in {"who_2019_south_asia_cvd", "idrs_type2_diabetes"})
+    assert {"diabetes_brfss", "heart_disease_brfss", "lung_cancer_survey"}.issubset(TOOLS)
+    assert all(TOOLS[key].availability == "enabled" for key in ("diabetes_brfss", "heart_disease_brfss", "lung_cancer_survey"))
+    assert all(tool.availability == "disabled" for key, tool in TOOLS.items() if key not in {"who_2019_south_asia_cvd", "idrs_type2_diabetes", "diabetes_brfss", "heart_disease_brfss", "lung_cancer_survey"})
     assert TOOLS["who_2019_south_asia_cvd"].availability == "enabled"
     assert TOOLS["idrs_type2_diabetes"].availability == "enabled"
     assert "U.S." in TOOLS["prevent_cvd"].validated_population
@@ -22,6 +23,8 @@ def test_initial_tools_have_population_license_and_use_gates():
     assert "future-onset prediction" in TOOLS["idrs_type2_diabetes"].intended_use
     assert "UK adults" in TOOLS["qdiabetes_2018"].validated_population
     assert "BRCA1/2" in " ".join(TOOLS["bcrat_breast_cancer"].limitations)
+    assert TOOLS["sybil_lung_cancer"].availability == "disabled"
+    assert TOOLS["mirai_breast_cancer"].availability == "disabled"
 
 
 def test_unlicensed_or_unimplemented_calculator_never_returns_a_score():
