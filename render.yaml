@@ -12,6 +12,8 @@ services:
         value: CareKey API
       - key: ENVIRONMENT
         value: production
+      - key: PYTHON_VERSION
+        value: 3.13.5
       - key: DATABASE_URL
         sync: false
       - key: CORS_ORIGINS
