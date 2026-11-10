@@ -62,7 +62,7 @@ function HealthInsightsPage() {
 
   return <>
     <PageHeading title="Health insights" description="Choose an experimental model, review only its required questions, and confirm the inputs before running it." />
-    <section className="mb-6 grid gap-4 md:grid-cols-2">{(tools.data ?? []).map((tool) => <article key={tool.key} className="card-surface space-y-3 p-5">
+    <section className="mb-6 grid w-full grid-cols-1 gap-4">{(tools.data ?? []).map((tool) => <article key={tool.key} className="card-surface w-full space-y-3 p-5">
       <div className="flex items-start justify-between gap-3"><div><h2 className="font-semibold">{tool.name}</h2><p className="text-sm text-muted-foreground">{tool.category.replaceAll("_", " ")} · version {tool.version}</p></div><Badge variant="outline">{tool.availability === "enabled" ? "Available" : "Not enabled"}</Badge></div>
       <p className="text-sm">{tool.intended_use}</p>
       <p className="text-xs text-muted-foreground"><strong>Dataset:</strong> {tool.dataset ?? tool.validated_population}</p>
