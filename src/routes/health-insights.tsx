@@ -30,6 +30,14 @@ type Assessment = {
   summary: string | null; assessed_at: string;
 };
 
+const assessmentNames: Record<string, string> = {
+  diabetes_brfss: "Diabetes health indicators",
+  heart_disease_brfss: "Heart disease health indicators",
+  lung_cancer_survey: "Lung cancer survey",
+  who_2019_south_asia_cvd: "WHO cardiovascular chart",
+  idrs_type2_diabetes: "IDRS diabetes screening",
+};
+
 export const Route = createFileRoute("/health-insights")({
   head: () => ({ meta: [{ title: "Health insights — CareKey" }] }),
   component: () => <RequireRole roles={["patient"]}><HealthInsightsPage /></RequireRole>,
@@ -74,21 +82,36 @@ function HealthInsightsPage() {
       {selectedTool === tool.key ? <AssessmentInputForm tool={tool} patientInputs={patientInputs.data} onSubmit={(request) => runAssessment.mutate({ modelKey: tool.key, request })} busy={runAssessment.isPending} /> : null}
     </article>)}</section>
     <p className="mb-6 rounded-md border border-warning/40 bg-warning-soft p-4 text-sm">CareKey is an academic prototype. Experimental model outputs are not diagnoses, do not rule out disease, and are not a substitute for qualified medical advice.</p>
-    <section className="card-surface p-5"><h2 className="font-semibold">Assessment history</h2>
-      {history.isLoading ? <p className="mt-3 text-sm text-muted-foreground">Loading history…</p> : null}
-      {!history.data?.length && !history.isLoading ? <p className="mt-3 text-sm text-muted-foreground">No assessments have been generated yet.</p> : null}
-      <div className="mt-3 divide-y">{(history.data ?? []).map((item) => <article key={item.id} className="py-4">
-        <div className="flex flex-wrap justify-between gap-2"><strong>{item.model_key.replaceAll("_", " ")} · v{item.model_version}</strong><span className="text-sm text-muted-foreground">{new Date(item.assessed_at).toLocaleString()}</span></div>
-        {item.summary ? <p className="mt-2 text-sm">{item.summary}</p> : null}
-        {item.result?.risk_category ? <p className="mt-2 text-lg font-semibold">10-year category: {String(item.result.risk_category)}</p> : null}
-        {item.result?.idrs_score !== undefined ? <div className="mt-2"><p className="text-lg font-semibold">IDRS screening score: {String(item.result.idrs_score)} / 100</p><p className="font-medium">Screening category: {String(item.result.screening_category)}</p><p className="text-xs text-muted-foreground">This screening score is not a diagnosis or future-onset prediction.</p></div> : null}
-        {item.result?.sigmoid_output !== undefined ? <div className="mt-2 rounded-md border bg-muted/30 p-3"><p className="font-semibold">Model category: {String(item.result.category).replaceAll("_", " ")}</p><p className="text-sm">Sigmoid output: {Number(item.result.sigmoid_output).toFixed(4)} (classification threshold: 0.5)</p><p className="text-xs text-muted-foreground">This is the model's uncalibrated output, not a clinical risk percentage.</p></div> : null}
-        {!item.result?.risk_category && item.result?.idrs_score === undefined && item.result ? <p className="mt-1 text-sm">Result: {Object.entries(item.result).map(([key, value]) => `${key.replaceAll("_", " ")}: ${String(value)}`).join(" · ")}</p> : null}
-        {item.missing_information.length ? <p className="mt-1 text-sm text-muted-foreground">Missing information: {item.missing_information.join(", ")}</p> : null}
-        {item.contributing_factors.length ? <p className="mt-1 text-sm text-muted-foreground">Factors: {item.contributing_factors.map((factor) => `${factor.label ?? "Factor"}: ${String(factor.value ?? "recorded")}`).join(" · ")}</p> : null}
-        {item.input_snapshot?.inputs ? <details className="mt-2 text-sm"><summary className="cursor-pointer font-medium">Input snapshot and provenance</summary><div className="mt-2 space-y-1 text-xs text-muted-foreground">{Object.entries(item.input_snapshot.inputs as Record<string, unknown>).map(([key, value]) => <p key={key}>{key}: {String(value)}</p>)}<p>Input status: {String(item.input_snapshot.input_verification_status ?? "recorded")}</p>{Array.isArray(item.input_snapshot.defaulted_inputs) && item.input_snapshot.defaulted_inputs.length ? <p>Documented defaults selected for: {(item.input_snapshot.defaulted_inputs as string[]).join(", ")}</p> : null}{item.input_snapshot.source_by_feature ? <div className="mt-2 border-t pt-2"><p className="font-medium">Source by input</p>{Object.entries(item.input_snapshot.source_by_feature as Record<string, { source_type?: string; verification_status?: string; observed_at?: string; value_date?: string }>).map(([key, source]) => <p key={key}>{key}: {source.source_type ?? "recorded"}{source.verification_status ? ` · ${source.verification_status}` : ""}{source.observed_at ? ` · ${new Date(source.observed_at).toLocaleString()}` : ""}{source.value_date ? ` · value date ${source.value_date}` : ""}</p>)}</div> : null}</div></details> : null}
-        <p className="mt-1 text-xs text-muted-foreground">Status: {item.status.replaceAll("_", " ")}</p>
-      </article>)}</div>
+    <section className="card-surface p-5 sm:p-6"><div className="flex flex-wrap items-center justify-between gap-2"><div><h2 className="text-lg font-semibold">Assessment history</h2><p className="mt-1 text-sm text-muted-foreground">Your saved assessments, newest first.</p></div>{history.data?.length ? <Badge variant="secondary">{history.data.length} {history.data.length === 1 ? "assessment" : "assessments"}</Badge> : null}</div>
+      {history.isLoading ? <p className="mt-4 text-sm text-muted-foreground">Loading history…</p> : null}
+      {history.error ? <p role="alert" className="mt-4 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">Could not load assessment history: {history.error.message}</p> : null}
+      {!history.data?.length && !history.isLoading && !history.error ? <p className="mt-4 rounded-lg border border-dashed p-5 text-sm text-muted-foreground">No assessments yet. Completed assessments will appear here.</p> : null}
+      <div className="mt-4 space-y-4">{(history.data ?? []).map((item) => {
+        const isModelOutput = item.result?.sigmoid_output !== undefined;
+        const modelVersion = item.model_version.startsWith("sha256:") ? item.model_version.slice(7, 19) : item.model_version;
+        const category = String(item.result?.category ?? "").replaceAll("_", " ");
+        return <article key={item.id} className="rounded-xl border bg-background p-4 shadow-sm sm:p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div><h3 className="font-semibold">{assessmentNames[item.model_key] ?? item.model_key.replaceAll("_", " ")}</h3><p className="mt-1 text-xs text-muted-foreground" title={item.model_version}>Model version {modelVersion}</p></div>
+            <div className="flex flex-wrap items-center gap-2"><Badge variant="outline">{item.status.replaceAll("_", " ")}</Badge><time className="text-sm text-muted-foreground" dateTime={item.assessed_at}>{new Date(item.assessed_at).toLocaleString()}</time></div>
+          </div>
+          {isModelOutput ? <div className="mt-4 rounded-lg border bg-muted/30 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Model classification</p><p className="mt-1 text-lg font-semibold capitalize">{category}</p></div><div className="text-left sm:text-right"><p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Sigmoid output</p><p className="mt-1 text-2xl font-semibold tabular-nums">{Number(item.result!.sigmoid_output).toFixed(4)}</p></div></div>
+            <p className="mt-3 text-xs leading-relaxed text-muted-foreground">Classification threshold: {String(item.result?.threshold ?? 0.5)}. This uncalibrated model output is not a clinical risk percentage or diagnosis; a low output does not rule out disease.</p>
+          </div> : null}
+          {item.result?.risk_category ? <div className="mt-4 rounded-lg border bg-muted/30 p-4"><p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">10-year cardiovascular category</p><p className="mt-1 text-lg font-semibold capitalize">{String(item.result.risk_category)}</p>{item.summary ? <p className="mt-2 text-sm text-muted-foreground">{item.summary}</p> : null}</div> : null}
+          {item.result?.idrs_score !== undefined ? <div className="mt-4 rounded-lg border bg-muted/30 p-4"><p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">IDRS screening score</p><p className="mt-1 text-2xl font-semibold tabular-nums">{String(item.result.idrs_score)} <span className="text-sm font-normal text-muted-foreground">/ 100</span></p><p className="mt-1 text-sm font-medium capitalize">{String(item.result.screening_category ?? "").replaceAll("_", " ")}</p><p className="mt-2 text-xs text-muted-foreground">This screening score is not a diagnosis or future-onset prediction.</p></div> : null}
+          {!isModelOutput && !item.result?.risk_category && item.result?.idrs_score === undefined && item.summary ? <p className="mt-4 text-sm text-muted-foreground">{item.summary}</p> : null}
+          {item.missing_information.length ? <p className="mt-3 rounded-md border border-warning/40 bg-warning-soft p-3 text-sm">Missing information: {item.missing_information.join(", ")}</p> : null}
+          {item.contributing_factors.length || item.input_snapshot?.inputs ? <details className="mt-4 border-t pt-3 text-sm"><summary className="cursor-pointer font-medium">Inputs and provenance</summary>
+            {item.contributing_factors.length ? <dl className="mt-3 grid gap-x-6 gap-y-3 sm:grid-cols-2 xl:grid-cols-3">{item.contributing_factors.map((factor, index) => <div key={`${factor.label ?? "input"}-${index}`}><dt className="text-xs text-muted-foreground">{factor.label ?? "Input"}</dt><dd className="mt-0.5 font-medium">{String(factor.value ?? "recorded")}</dd></div>)}</dl> : null}
+            <div className="mt-3 space-y-1 text-xs text-muted-foreground"><p>Input status: {String(item.input_snapshot.input_verification_status ?? "recorded")}</p>{Array.isArray(item.input_snapshot.defaulted_inputs) && item.input_snapshot.defaulted_inputs.length ? <p>Documented defaults selected for: {(item.input_snapshot.defaulted_inputs as string[]).join(", ")}</p> : null}
+              {!item.contributing_factors.length && item.input_snapshot.inputs ? <div className="grid gap-x-6 gap-y-1 sm:grid-cols-2 xl:grid-cols-3">{Object.entries(item.input_snapshot.inputs as Record<string, unknown>).map(([key, value]) => <p key={key}>{key}: {String(value)}</p>)}</div> : null}
+              {item.input_snapshot.source_by_feature ? <div className="mt-3 border-t pt-3"><p className="mb-2 font-medium">Source by input</p><div className="grid gap-x-6 gap-y-2 sm:grid-cols-2 xl:grid-cols-3">{Object.entries(item.input_snapshot.source_by_feature as Record<string, { source_type?: string; verification_status?: string; observed_at?: string; value_date?: string }>).map(([key, source]) => <p key={key}>{key}: {source.source_type ?? "recorded"}{source.verification_status ? ` · ${source.verification_status}` : ""}{source.observed_at ? ` · ${new Date(source.observed_at).toLocaleString()}` : ""}{source.value_date ? ` · value date ${source.value_date}` : ""}</p>)}</div></div> : null}
+            </div>
+          </details> : null}
+        </article>;
+      })}</div>
     </section>
   </>;
 }
